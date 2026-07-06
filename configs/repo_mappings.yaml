@@ -1,0 +1,21 @@
+# Repository to Redmine Project Mapping
+# Maps Git repository paths to their corresponding Redmine Project names or IDs.
+# Unknown repositories will be logged instead of causing a failure.
+
+repositories:
+  digiflux-devs/Digiflux-AssetTrack-BE:
+    redmine_project: Digiflux AssetTrack
+  digiflux-devs/Digiflux-AssetTrack-FE:
+    redmine_project: Digiflux AssetTrack
+  digiflux-devs/web-ezytix:
+    redmine_project: Ezytix Tech
+  digiflux-devs/org-web-ezytix:
+    redmine_project: Ezytix Tech
+  digiflux-devs/frs-tb-screening-erp:
+    redmine_project: ERP
+  digiflux-devs/drm-finance-standy-dashboard:
+    redmine_project: ERP
+  digiflux-devs/mixa-shop:
+    redmine_project: Mixa Shop
+  digiflux-devs/mixa-shop-3:
+    redmine_project: Mixa Shop
