@@ -406,26 +406,24 @@ class SyncService:
 
     def _upsert_todo_and_time(self, todo: WorkTodo, date_str: str, sync_result: SyncResult) -> None:
         """Creates or reuses a to-do issue and logs hours if not already logged for the day."""
-        subject = todo.subject
-        # Prefix date so re-runs can find the same daily to-do
-        dated_subject = f"[{date_str}] {subject}"[:255]
+        subject = todo.subject[:255]
 
         try:
             existing = self.redmine_client.find_issue_by_subject(
                 project_id=todo.project_id,
-                subject=dated_subject,
+                subject=subject,
                 parent_issue_id=todo.parent_issue_id,
             )
 
             if existing:
                 issue_id = existing["id"]
-                logger.info(f"Reusing existing to-do #{issue_id}: {dated_subject}")
+                logger.info(f"Reusing existing to-do #{issue_id}: {subject}")
                 sync_result.updated_issues.append(issue_id)
             else:
                 new_issue = self.redmine_client.create_issue(
                     project_id=todo.project_id,
                     parent_issue_id=todo.parent_issue_id,
-                    subject=dated_subject,
+                    subject=subject,
                     description=todo.description,
                 )
                 issue_id = new_issue["id"]
@@ -457,6 +455,6 @@ class SyncService:
                 sync_result.hours_logged += already
 
         except Exception as e:
-            error_msg = f"Failed to upsert to-do '{dated_subject}': {e}"
+            error_msg = f"Failed to upsert to-do '{subject}': {e}"
             logger.error(error_msg)
             sync_result.errors.append(error_msg)
