@@ -10,21 +10,28 @@ Open a terminal and run:
 
 ```bash
 cd "/home/hello/Documents/My projects /CommitFlow"
-.venv/bin/python3 -m commitflow test-connection
-.venv/bin/python3 -m commitflow sync --today --dry-run
-.venv/bin/python3 -m commitflow sync --today
+
+# 1) Check connections
+.venv/bin/python3 -m app.cli test-connection
+
+# 2) Preview only (no Redmine write)
+.venv/bin/python3 -m app.cli sync --today --dry-run
+
+# 3) Full sync — creates to-dos + logs 8 hours in Redmine
+.venv/bin/python3 -m app.cli sync --today
 ```
 
 | Step | What it does |
 |------|----------------|
 | `test-connection` | Checks GitHub, GitLab, and Redmine are working |
 | `sync --today --dry-run` | Preview only — shows to-dos/hours, **does not write to Redmine** |
-| `sync --today` | Finds today's commits, creates to-dos, logs **8 hours** in Redmine |
+| `sync --today` | Finds today's commits (skips merge/PR commits), creates to-dos, logs **8 hours** in Redmine |
 
 For a past date:
 
 ```bash
-.venv/bin/python3 -m commitflow sync --date 2026-07-09
+.venv/bin/python3 -m app.cli sync --date 2026-07-09 --dry-run
+.venv/bin/python3 -m app.cli sync --date 2026-07-09
 ```
 
 ---
@@ -146,43 +153,52 @@ requirements.txt                  # Direct package requirements
 
 ## CLI Usage
 
-Verify installation by running:
+All commands use:
+
 ```bash
-commitflow --help
+.venv/bin/python3 -m app.cli <command>
+```
+
+Verify installation:
+```bash
+.venv/bin/python3 -m app.cli --help
 ```
 
 ### 1. Test Connections
 Test API keys, endpoints, and credentials for Redmine, GitLab, and GitHub:
 ```bash
-commitflow test-connection
+.venv/bin/python3 -m app.cli test-connection
 ```
 
 ### 2. View Redmine Projects
 Lists all Redmine projects with their identifiers:
 ```bash
-commitflow list-projects
+.venv/bin/python3 -m app.cli list-projects
 ```
 
 ### 3. List Project Features
 Lists all available Parent Features (parent tasks) for a project:
 ```bash
-commitflow list-features "Ezytix Tech"
+.venv/bin/python3 -m app.cli list-features "Ezytix Tech"
 ```
 
 ### 4. Sync Git Commits
 Pull today's commits, run classification, and log features to Redmine:
 ```bash
-# Sync today's work logs
-commitflow sync --today
+# Preview first (recommended)
+.venv/bin/python3 -m app.cli sync --today --dry-run
+
+# Sync today's work logs (writes to Redmine)
+.venv/bin/python3 -m app.cli sync --today
 
 # Sync work logs for a specific past date
-commitflow sync --date 2026-07-01
+.venv/bin/python3 -m app.cli sync --date 2026-07-01
 ```
 
 ### 5. Add AI Correction Feedback
 If the AI maps a commit to the wrong Feature, teach the system the correction:
 ```bash
-commitflow add-feedback \
+.venv/bin/python3 -m app.cli add-feedback \
   --commit "a1b2c3d4" \
   --repo "digiflux-ezytix/be-api" \
   --msg "Added payments integration" \
@@ -194,16 +210,16 @@ commitflow add-feedback \
 ### 6. Manage Cache
 ```bash
 # Inspect prediction cache
-commitflow show-cache
+.venv/bin/python3 -m app.cli show-cache
 
 # Purge cache
-commitflow clear-cache
+.venv/bin/python3 -m app.cli clear-cache
 ```
 
 ### 7. Export Summaries
 Output Markdown, HTML, and CSV logs locally:
 ```bash
-commitflow export-report 2026-07-06
+.venv/bin/python3 -m app.cli export-report 2026-07-06
 ```
 Reports are output to the `./reports` directory.
 
