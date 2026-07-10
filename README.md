@@ -4,6 +4,31 @@ CommitFlow is a production-grade, extensible Python application designed to auto
 
 ---
 
+## Quick Run (every day)
+
+Open a terminal and run:
+
+```bash
+cd "/home/hello/Documents/My projects /CommitFlow"
+.venv/bin/python3 -m commitflow test-connection
+.venv/bin/python3 -m commitflow sync --today --dry-run
+.venv/bin/python3 -m commitflow sync --today
+```
+
+| Step | What it does |
+|------|----------------|
+| `test-connection` | Checks GitHub, GitLab, and Redmine are working |
+| `sync --today --dry-run` | Preview only — shows to-dos/hours, **does not write to Redmine** |
+| `sync --today` | Finds today's commits, creates to-dos, logs **8 hours** in Redmine |
+
+For a past date:
+
+```bash
+.venv/bin/python3 -m commitflow sync --date 2026-07-09
+```
+
+---
+
 ## Architecture Overview
 
 ```mermaid

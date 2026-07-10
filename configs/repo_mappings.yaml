@@ -1,21 +1,55 @@
-# Repository to Redmine Project Mapping
-# Maps Git repository paths to their corresponding Redmine Project names or IDs.
-# Unknown repositories will be logged instead of causing a failure.
+# Repository → Redmine project overrides
+# GitHub org repos (digiflux-ezytix) + GitLab (digiflux-devs)
 
 repositories:
-  digiflux-devs/Digiflux-AssetTrack-BE:
-    redmine_project: Digiflux AssetTrack
-  digiflux-devs/Digiflux-AssetTrack-FE:
-    redmine_project: Digiflux AssetTrack
+  # --- GitHub (today's work) ---
+  digiflux-ezytix/web-org:
+    redmine_project: Ezytix Tech
+    provider: github
+  digiflux-ezytix/be-api:
+    redmine_project: Ezytix Tech
+    provider: github
+  digiflux-ezytix/web-app:
+    redmine_project: Ezytix Tech
+    provider: github
+  digiflux-ezytix/web-admin:
+    redmine_project: Ezytix Tech
+    provider: github
+  digiflux-ezytix/web-landing:
+    redmine_project: Ezytix Tech
+    provider: github
+  digiflux-ezytix/mobile-app:
+    redmine_project: Ezytix Tech
+    provider: github
+  digiflux-ezytix/be-map-myvenue:
+    redmine_project: Ezytix Tech
+    provider: github
+  digiflux-ezytix/web-map-myvenue:
+    redmine_project: Ezytix Tech
+    provider: github
+
+  # --- GitLab ---
   digiflux-devs/web-ezytix:
     redmine_project: Ezytix Tech
+    provider: gitlab
   digiflux-devs/org-web-ezytix:
     redmine_project: Ezytix Tech
+    provider: gitlab
   digiflux-devs/frs-tb-screening-erp:
-    redmine_project: ERP
+    redmine_project: Research Projects
+    provider: gitlab
   digiflux-devs/drm-finance-standy-dashboard:
-    redmine_project: ERP
+    redmine_project: Research Projects
+    provider: gitlab
+  digiflux-devs/Digiflux-AssetTrack-BE:
+    redmine_project: Research Projects
+    provider: gitlab
+  digiflux-devs/Digiflux-AssetTrack-FE:
+    redmine_project: Research Projects
+    provider: gitlab
   digiflux-devs/mixa-shop:
-    redmine_project: Mixa Shop
+    redmine_project: Research Projects
+    provider: gitlab
   digiflux-devs/mixa-shop-3:
-    redmine_project: Mixa Shop
+    redmine_project: Research Projects
+    provider: gitlab

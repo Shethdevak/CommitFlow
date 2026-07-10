@@ -1,7 +1,22 @@
 import time
+import re
 from functools import wraps
-from typing import Any, Callable, Tuple, Type
+from typing import Any, Callable, Optional, Tuple, Type
 from loguru import logger
+
+_MERGE_SUBJECT_RE = re.compile(
+    r"^(Merge pull request\b|Merge branch\b|Merge remote-tracking branch\b|Merge\b.*\binto\b)",
+    re.IGNORECASE,
+)
+
+
+def is_merge_commit(message: str, parent_count: Optional[int] = None) -> bool:
+    """Returns True for merge/PR commits that should not become worklog to-dos."""
+    subject = (message or "").strip().split("\n", 1)[0]
+    if parent_count is not None and parent_count > 1:
+        return True
+    return bool(_MERGE_SUBJECT_RE.match(subject))
+
 
 def with_retry(
     retries: int = 3,

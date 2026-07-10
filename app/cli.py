@@ -44,7 +44,10 @@ def get_sync_service() -> SyncService:
     redmine_client = RedmineClient(base_url=settings.redmine_url, api_key=settings.redmine_api_key)
     
     # Initialize Mappings
-    mapping_resolver = MappingResolver(mappings_path=settings.mappings_path)
+    mapping_resolver = MappingResolver(
+        mappings_path=settings.mappings_path,
+        match_threshold=settings.project_match_threshold,
+    )
 
     # Resolve AI Provider
     provider_name = settings.ai_provider
@@ -98,7 +101,12 @@ def sync_command(
     today: bool = typer.Option(False, "--today", help="Sync commits from today"),
     sync_date_str: Optional[str] = typer.Option(
         None, "--date", help="Sync commits for a specific date (format: YYYY-MM-DD)"
-    )
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Preview to-dos and hours without writing anything to Redmine",
+    ),
 ):
     """Synchronizes Git commits for a given date, processes them via AI, and updates Redmine."""
     if not today and not sync_date_str:
@@ -114,21 +122,58 @@ def sync_command(
         rprint("[bold red]Invalid date format. Use YYYY-MM-DD.[/bold red]")
         raise typer.Exit(code=1)
 
-    rprint(f"[bold blue]Initializing sync for date: {target_date}...[/bold blue]")
+    mode = "[DRY RUN] " if dry_run else ""
+    rprint(f"[bold blue]{mode}Initializing sync for date: {target_date}...[/bold blue]")
     service = get_sync_service()
     
     try:
-        result = service.sync_date(target_date)
+        result = service.sync_date(target_date, dry_run=dry_run)
         if result.errors:
             rprint("[bold red]Sync completed with errors:[/bold red]")
             for err in result.errors:
                 rprint(f" - {err}")
-        
-        rprint(f"[bold green]Sync successfully completed![/bold green]")
-        rprint(f" - Commits Processed: {result.processed_commits_count}")
-        rprint(f" - Cached commits reused: {result.cached_commits_count}")
-        rprint(f" - Redmine Daily Worklog Issues Created: {len(result.created_issues)}")
-        rprint(f" - Redmine Daily Worklog Issues Updated: {len(result.updated_issues)}")
+
+        if dry_run:
+            rprint("[bold yellow]DRY RUN — nothing was written to Redmine.[/bold yellow]")
+            rprint(f" - Commits found: {result.processed_commits_count}")
+            rprint(f" - Cached commits reused: {result.cached_commits_count}")
+            rprint(f" - To-dos that WOULD be created: {result.todos_planned}")
+            rprint(f" - Hours that WOULD be logged: {result.hours_logged}h (goal: {service.settings.daily_hour_goal}h)")
+
+            if result.planned_todos:
+                table = Table(title=f"Preview: to-dos for {target_date}")
+                table.add_column("#", style="cyan", no_wrap=True)
+                table.add_column("Hours", style="yellow")
+                table.add_column("Project", style="magenta")
+                table.add_column("Feature", style="green")
+                table.add_column("Subject")
+                table.add_column("Type", style="dim")
+                for i, todo in enumerate(result.planned_todos, start=1):
+                    table.add_row(
+                        str(i),
+                        f"{todo.hours}h",
+                        todo.project_name,
+                        todo.feature_name,
+                        todo.subject[:80],
+                        "synthetic" if todo.is_synthetic else "commit",
+                    )
+                console.print(table)
+        else:
+            rprint(f"[bold green]Sync successfully completed![/bold green]")
+            rprint(f" - Commits Processed: {result.processed_commits_count}")
+            rprint(f" - Cached commits reused: {result.cached_commits_count}")
+            rprint(f" - To-dos planned: {result.todos_planned}")
+            rprint(f" - Redmine Issues Created: {len(result.created_issues)}")
+            rprint(f" - Redmine Issues Updated: {len(result.updated_issues)}")
+            rprint(f" - Time entries created: {result.time_entries_created}")
+            rprint(f" - Hours logged: {result.hours_logged}h (goal: {service.settings.daily_hour_goal}h)")
+
+        if result.unmapped_repos:
+            rprint(f"[yellow] - Unmapped repos ({len(result.unmapped_repos)}):[/yellow]")
+            for repo in result.unmapped_repos[:10]:
+                rprint(f"   • {repo}")
+            if len(result.unmapped_repos) > 10:
+                rprint(f"   … and {len(result.unmapped_repos) - 10} more")
     except Exception as e:
         rprint(f"[bold red]Sync critical failure: {e}[/bold red]")
         raise typer.Exit(code=1)

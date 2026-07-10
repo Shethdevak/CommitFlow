@@ -3,8 +3,8 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 import requests
 from loguru import logger
-from app.models.domain import Commit
-from app.utils.helpers import with_retry
+from app.models.domain import Commit, DiscoveredRepo
+from app.utils.helpers import with_retry, is_merge_commit
 
 class GitHubClient:
     """Interacts with GitHub REST API to retrieve user commits and change statistics."""
@@ -28,6 +28,45 @@ class GitHubClient:
         except Exception as e:
             logger.warning(f"Could not resolve GitHub authenticated user: {e}")
             return None
+
+    def list_repos(self) -> List[DiscoveredRepo]:
+        """Lists repositories accessible to the authenticated user."""
+        repos: List[DiscoveredRepo] = []
+        page = 1
+        per_page = 100
+
+        try:
+            while True:
+                params = {
+                    "per_page": per_page,
+                    "page": page,
+                    "affiliation": "owner,collaborator,organization_member",
+                    "sort": "updated",
+                }
+                response = self._request("GET", "/user/repos", params=params)
+                data = response.json()
+                if not data:
+                    break
+
+                for item in data:
+                    full_name = item.get("full_name", "")
+                    if not full_name:
+                        continue
+                    repos.append(DiscoveredRepo(
+                        full_name=full_name,
+                        name=item.get("name") or full_name.split("/")[-1],
+                        provider="github",
+                    ))
+
+                if len(data) < per_page:
+                    break
+                page += 1
+        except Exception as e:
+            logger.error(f"Failed to list GitHub repositories: {e}")
+            raise e
+
+        logger.info(f"Discovered {len(repos)} GitHub repositories.")
+        return repos
 
     @with_retry()
     def _request(self, method: str, path: str, params: Optional[Dict[str, Any]] = None) -> requests.Response:
@@ -98,6 +137,13 @@ class GitHubClient:
                     subject = msg_lines[0]
                     description = msg_lines[1] if len(msg_lines) > 1 else ""
 
+                    parents = item.get("parents") or []
+                    if is_merge_commit(subject, parent_count=len(parents)):
+                        logger.info(
+                            f"Skipping merge commit {sha[:8]} in '{repository}': {subject[:80]}"
+                        )
+                        continue
+
                     # Fetch commit details (for changed files)
                     detail = self.fetch_commit_detail(repository, sha)
                     changed_files = [f.get("filename", "") for f in detail.get("files", [])]
@@ -118,7 +164,8 @@ class GitHubClient:
                         url=item.get("html_url"),
                         changed_files=changed_files,
                         additions=stats.get("additions", 0),
-                        deletions=stats.get("deletions", 0)
+                        deletions=stats.get("deletions", 0),
+                        provider="github",
                     ))
 
                 if len(data) < per_page:

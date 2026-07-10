@@ -3,8 +3,8 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 import requests
 from loguru import logger
-from app.models.domain import Commit
-from app.utils.helpers import with_retry
+from app.models.domain import Commit, DiscoveredRepo
+from app.utils.helpers import with_retry, is_merge_commit
 
 class GitLabClient:
     """Interacts with GitLab REST API (Cloud or Self-Hosted) to retrieve user commits."""
@@ -33,6 +33,47 @@ class GitLabClient:
         except Exception as e:
             logger.warning(f"Could not resolve GitLab authenticated user: {e}")
             return None
+
+    def list_repos(self) -> List[DiscoveredRepo]:
+        """Lists projects the authenticated user is a member of."""
+        repos: List[DiscoveredRepo] = []
+        page = 1
+        per_page = 100
+
+        try:
+            while True:
+                params = {
+                    "membership": "true",
+                    "simple": "true",
+                    "per_page": per_page,
+                    "page": page,
+                    "order_by": "last_activity_at",
+                    "sort": "desc",
+                }
+                response = self._request("GET", "/projects", params=params)
+                data = response.json()
+                if not data:
+                    break
+
+                for item in data:
+                    full_name = item.get("path_with_namespace", "")
+                    if not full_name:
+                        continue
+                    repos.append(DiscoveredRepo(
+                        full_name=full_name,
+                        name=item.get("path") or full_name.split("/")[-1],
+                        provider="gitlab",
+                    ))
+
+                if len(data) < per_page:
+                    break
+                page += 1
+        except Exception as e:
+            logger.error(f"Failed to list GitLab projects: {e}")
+            raise e
+
+        logger.info(f"Discovered {len(repos)} GitLab projects.")
+        return repos
 
     def fetch_commits(
         self,
@@ -84,6 +125,13 @@ class GitLabClient:
                     subject = msg_lines[0]
                     description = msg_lines[1] if len(msg_lines) > 1 else ""
 
+                    parent_ids = item.get("parent_ids") or []
+                    if is_merge_commit(subject, parent_count=len(parent_ids)):
+                        logger.info(
+                            f"Skipping merge commit {sha[:8]} in '{repository}': {subject[:80]}"
+                        )
+                        continue
+
                     # Fetch changed files
                     changed_files = self.fetch_changed_files(project_path_encoded, sha)
                     
@@ -108,7 +156,8 @@ class GitLabClient:
                         url=commit_url,
                         changed_files=changed_files,
                         additions=additions,
-                        deletions=deletions
+                        deletions=deletions,
+                        provider="gitlab",
                     ))
 
                 if len(data) < per_page:

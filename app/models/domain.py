@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
 
 class Commit(BaseModel):
@@ -14,6 +14,13 @@ class Commit(BaseModel):
     changed_files: List[str] = Field(default_factory=list)
     additions: int = 0
     deletions: int = 0
+    provider: Optional[str] = None  # "github" | "gitlab"
+
+class DiscoveredRepo(BaseModel):
+    """A repository discovered from GitHub or GitLab."""
+    full_name: str  # e.g. "org/repo"
+    name: str  # short name used for fuzzy matching
+    provider: Literal["github", "gitlab"]
 
 class RedmineProject(BaseModel):
     """Represents a Redmine project entity."""
@@ -40,11 +47,37 @@ class AIClassificationResult(BaseModel):
     """Output structure expected from AI providers."""
     selected_features: List[FeatureMappingSelection]
 
+class ClassifiedCommit(BaseModel):
+    """A commit paired with its resolved Redmine project and feature."""
+    commit: Commit
+    project_name: str
+    project_id: int
+    feature_name: str
+    parent_issue_id: Optional[int] = None
+
+class WorkTodo(BaseModel):
+    """A planned daily to-do with allocated hours."""
+    subject: str
+    description: str
+    hours: float
+    project_id: int
+    project_name: str
+    feature_name: str
+    parent_issue_id: Optional[int] = None
+    commits: List[Commit] = Field(default_factory=list)
+    is_synthetic: bool = False  # True when padded to meet min to-do count
+
 class SyncResult(BaseModel):
     """Result of the synchronization workflow run."""
     date: str
     processed_commits_count: int
     created_issues: List[int] = Field(default_factory=list)
     updated_issues: List[int] = Field(default_factory=list)
+    time_entries_created: int = 0
+    hours_logged: float = 0.0
+    todos_planned: int = 0
     cached_commits_count: int = 0
     errors: List[str] = Field(default_factory=list)
+    unmapped_repos: List[str] = Field(default_factory=list)
+    planned_todos: List[WorkTodo] = Field(default_factory=list)
+    dry_run: bool = False

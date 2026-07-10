@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     # Localization
     timezone: str = Field("UTC", validation_alias="TIMEZONE")
 
+    # Daily worklog goals
+    daily_hour_goal: float = Field(8.0, validation_alias="DAILY_HOUR_GOAL")
+    min_todos: int = Field(3, validation_alias="MIN_TODOS")
+    project_match_threshold: int = Field(70, validation_alias="PROJECT_MATCH_THRESHOLD")
+
     # AI Configurations
     ai_provider: str = Field("openai", validation_alias="AI_PROVIDER")
     ai_confidence_threshold: int = Field(80, validation_alias="AI_CONFIDENCE_THRESHOLD")

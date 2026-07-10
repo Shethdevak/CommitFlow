@@ -187,3 +187,84 @@ class RedmineClient:
         except Exception as e:
             logger.error(f"Failed to add note to Redmine issue #{issue_id}: {e}")
             raise e
+
+    def find_issue_by_subject(
+        self,
+        project_id: int,
+        subject: str,
+        parent_issue_id: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Finds an issue in a project by exact subject (optionally under a parent)."""
+        offset = 0
+        limit = 50
+        target = subject.strip()
+
+        try:
+            while True:
+                params: Dict[str, Any] = {
+                    "project_id": project_id,
+                    "status_id": "*",
+                    "offset": offset,
+                    "limit": limit,
+                }
+                if parent_issue_id:
+                    params["parent_id"] = parent_issue_id
+
+                response = self._request("GET", "issues.json", params=params)
+                issues = response.json().get("issues", [])
+                if not issues:
+                    break
+
+                for issue in issues:
+                    if issue.get("subject", "").strip() == target:
+                        return issue
+
+                if len(issues) < limit:
+                    break
+                offset += limit
+        except Exception as e:
+            logger.error(f"Error searching for issue '{subject}': {e}")
+
+        return None
+
+    def create_time_entry(
+        self,
+        issue_id: int,
+        hours: float,
+        spent_on: str,
+        comments: str = "",
+    ) -> Dict[str, Any]:
+        """Logs spent time against a Redmine issue for a given date (YYYY-MM-DD)."""
+        payload = {
+            "time_entry": {
+                "issue_id": issue_id,
+                "spent_on": spent_on,
+                "hours": hours,
+                "comments": comments[:255] if comments else "",
+            }
+        }
+        try:
+            response = self._request("POST", "time_entries.json", json_data=payload)
+            entry = response.json().get("time_entry", {})
+            logger.info(
+                f"Logged {hours}h on issue #{issue_id} for {spent_on} "
+                f"(time entry #{entry.get('id')})."
+            )
+            return entry
+        except Exception as e:
+            logger.error(f"Failed to create time entry on issue #{issue_id}: {e}")
+            raise e
+
+    def get_time_entries_for_issue_on_date(self, issue_id: int, spent_on: str) -> List[Dict[str, Any]]:
+        """Returns time entries for an issue on a specific date."""
+        try:
+            params = {
+                "issue_id": issue_id,
+                "spent_on": spent_on,
+                "limit": 100,
+            }
+            response = self._request("GET", "time_entries.json", params=params)
+            return response.json().get("time_entries", [])
+        except Exception as e:
+            logger.error(f"Failed to fetch time entries for issue #{issue_id}: {e}")
+            return []
