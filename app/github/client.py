@@ -85,6 +85,36 @@ class GitHubClient:
         response.raise_for_status()
         return response
 
+    def list_branches(self, repository: str) -> List[str]:
+        """Lists all branch names in a repository."""
+        branches: List[str] = []
+        page = 1
+        per_page = 100
+
+        try:
+            while True:
+                response = self._request(
+                    "GET",
+                    f"repos/{repository}/branches",
+                    params={"per_page": per_page, "page": page},
+                )
+                data = response.json()
+                if not data:
+                    break
+                for item in data:
+                    name = item.get("name")
+                    if name:
+                        branches.append(name)
+                if len(data) < per_page:
+                    break
+                page += 1
+        except Exception as e:
+            logger.warning(f"Could not list branches for '{repository}': {e}")
+            return []
+
+        logger.info(f"Found {len(branches)} branch(es) in '{repository}'.")
+        return branches
+
     def fetch_commits(
         self,
         repository: str,
@@ -92,91 +122,125 @@ class GitHubClient:
         since: datetime,
         until: datetime
     ) -> List[Commit]:
-        """Fetches commit details from a repository within a datetime range, filtered by author."""
-        commits: List[Commit] = []
-        page = 1
-        per_page = 100
+        """Fetches author commits across all branches in a date range (deduped by SHA)."""
+        logger.info(
+            f"Fetching GitHub commits from '{repository}' "
+            f"(all branches) since {since.isoformat()} until {until.isoformat()}..."
+        )
 
-        logger.info(f"Fetching GitHub commits from '{repository}' since {since.isoformat()} until {until.isoformat()}...")
+        branches = self.list_branches(repository)
+        if not branches:
+            # Fallback: default branch only
+            branches = [""]
+
+        seen_shas: set[str] = set()
+        commits: List[Commit] = []
 
         try:
-            while True:
-                params = {
-                    "since": since.isoformat(),
-                    "until": until.isoformat(),
-                    "page": page,
-                    "per_page": per_page
-                }
-                
-                response = self._request("GET", f"repos/{repository}/commits", params=params)
-                data = response.json()
-                if not data:
-                    break
+            for branch in branches:
+                page = 1
+                per_page = 100
+                while True:
+                    params: Dict[str, Any] = {
+                        "since": since.isoformat(),
+                        "until": until.isoformat(),
+                        "page": page,
+                        "per_page": per_page,
+                    }
+                    if branch:
+                        params["sha"] = branch
 
-                for item in data:
-                    commit_data = item.get("commit", {})
-                    author_data = commit_data.get("author", {})
-                    committer_data = commit_data.get("committer", {})
-                    
-                    git_author_name = author_data.get("name", "")
-                    git_committer_name = committer_data.get("name", "")
-                    
-                    # Fuzzy match or exact match on author name
-                    match_author = (
-                        author_name.lower() in git_author_name.lower() or 
-                        author_name.lower() in git_committer_name.lower() or
-                        (item.get("author") and author_name.lower() in item["author"].get("login", "").lower())
-                    )
-                    
-                    if not match_author:
-                        continue
-
-                    sha = item.get("sha", "")
-                    message_full = commit_data.get("message", "")
-                    msg_lines = message_full.split("\n", 1)
-                    subject = msg_lines[0]
-                    description = msg_lines[1] if len(msg_lines) > 1 else ""
-
-                    parents = item.get("parents") or []
-                    if is_merge_commit(subject, parent_count=len(parents)):
-                        logger.info(
-                            f"Skipping merge commit {sha[:8]} in '{repository}': {subject[:80]}"
+                    try:
+                        response = self._request("GET", f"repos/{repository}/commits", params=params)
+                    except Exception as e:
+                        logger.warning(
+                            f"Could not fetch commits for '{repository}' "
+                            f"branch '{branch or 'default'}': {e}"
                         )
-                        continue
+                        break
 
-                    # Fetch commit details (for changed files)
-                    detail = self.fetch_commit_detail(repository, sha)
-                    changed_files = [f.get("filename", "") for f in detail.get("files", [])]
-                    stats = detail.get("stats", {})
+                    data = response.json()
+                    if not data:
+                        break
 
-                    committed_date = datetime.strptime(
-                        author_data.get("date", committer_data.get("date", since.isoformat())),
-                        "%Y-%m-%dT%H:%M:%SZ"
-                    )
+                    for item in data:
+                        sha = item.get("sha", "")
+                        if not sha or sha in seen_shas:
+                            continue
 
-                    commits.append(Commit(
-                        hash=sha,
-                        message=subject,
-                        description=description,
-                        author=git_author_name,
-                        repository=repository,
-                        committed_date=committed_date,
-                        url=item.get("html_url"),
-                        changed_files=changed_files,
-                        additions=stats.get("additions", 0),
-                        deletions=stats.get("deletions", 0),
-                        provider="github",
-                    ))
+                        commit_data = item.get("commit", {})
+                        author_data = commit_data.get("author", {})
+                        committer_data = commit_data.get("committer", {})
 
-                if len(data) < per_page:
-                    break
-                page += 1
+                        git_author_name = author_data.get("name", "")
+                        git_committer_name = committer_data.get("name", "")
+
+                        match_author = (
+                            author_name.lower() in git_author_name.lower()
+                            or author_name.lower() in git_committer_name.lower()
+                            or (
+                                item.get("author")
+                                and author_name.lower() in item["author"].get("login", "").lower()
+                            )
+                        )
+                        if not match_author:
+                            continue
+
+                        message_full = commit_data.get("message", "")
+                        msg_lines = message_full.split("\n", 1)
+                        subject = msg_lines[0]
+                        description = msg_lines[1] if len(msg_lines) > 1 else ""
+
+                        parents = item.get("parents") or []
+                        if is_merge_commit(subject, parent_count=len(parents)):
+                            logger.info(
+                                f"Skipping merge commit {sha[:8]} in '{repository}': {subject[:80]}"
+                            )
+                            seen_shas.add(sha)
+                            continue
+
+                        seen_shas.add(sha)
+                        detail = self.fetch_commit_detail(repository, sha)
+                        changed_files = [f.get("filename", "") for f in detail.get("files", [])]
+                        stats = detail.get("stats", {})
+
+                        date_raw = author_data.get("date") or committer_data.get("date") or since.isoformat()
+                        # Accept both ...Z and offset forms
+                        date_raw = date_raw.replace("Z", "+00:00") if date_raw.endswith("Z") else date_raw
+                        try:
+                            committed_date = datetime.fromisoformat(date_raw).replace(tzinfo=None)
+                        except ValueError:
+                            committed_date = datetime.strptime(
+                                author_data.get("date", committer_data.get("date", "1970-01-01T00:00:00Z")),
+                                "%Y-%m-%dT%H:%M:%SZ",
+                            )
+
+                        commits.append(Commit(
+                            hash=sha,
+                            message=subject,
+                            description=description,
+                            author=git_author_name,
+                            repository=repository,
+                            committed_date=committed_date,
+                            url=item.get("html_url"),
+                            changed_files=changed_files,
+                            additions=stats.get("additions", 0),
+                            deletions=stats.get("deletions", 0),
+                            provider="github",
+                        ))
+
+                    if len(data) < per_page:
+                        break
+                    page += 1
 
         except Exception as e:
             logger.error(f"Failed to fetch GitHub commits for repo '{repository}': {e}")
             raise e
 
-        logger.info(f"Found {len(commits)} commits by user '{author_name}' in GitHub repo '{repository}'.")
+        logger.info(
+            f"Found {len(commits)} commits by user '{author_name}' "
+            f"in GitHub repo '{repository}' (across {len(branches)} branch(es))."
+        )
         return commits
 
     def fetch_commit_detail(self, repository: str, sha: str) -> Dict[str, Any]:

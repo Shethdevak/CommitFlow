@@ -5,15 +5,19 @@ from app.gitlab.client import GitLabClient
 from app.redmine.client import RedmineClient
 
 def test_github_client_fetch_commits(mocker):
-    """Verifies that the GitHubClient constructs endpoints and parses commits correctly."""
+    """Verifies that the GitHubClient scans branches and parses commits correctly."""
     github = GitHubClient(token="test_token")
-    
-    # Mocking API calls
+
+    mock_branches_response = mocker.Mock()
+    mock_branches_response.headers = {"X-RateLimit-Remaining": "100"}
+    mock_branches_response.json.return_value = [{"name": "main"}]
+
     mock_commits_response = mocker.Mock()
     mock_commits_response.headers = {"X-RateLimit-Remaining": "100"}
     mock_commits_response.json.return_value = [
         {
             "sha": "abc12345",
+            "parents": [{"sha": "parent1"}],
             "commit": {
                 "message": "Update database index\nDetail note",
                 "author": {"name": "Test Author", "date": "2026-07-06T12:00:00Z"},
@@ -22,22 +26,24 @@ def test_github_client_fetch_commits(mocker):
             "html_url": "https://github.com/org/repo/commit/abc12345"
         }
     ]
-    
+
     mock_detail_response = mocker.Mock()
-    mock_detail_response.headers = {}
+    mock_detail_response.headers = {"X-RateLimit-Remaining": "100"}
     mock_detail_response.json.return_value = {
         "files": [{"filename": "db/schema.sql"}],
         "stats": {"additions": 5, "deletions": 1}
     }
-    
-    # Patch request calls
-    mock_req = mocker.patch("requests.request", side_effect=[mock_commits_response, mock_detail_response])
+
+    mock_req = mocker.patch(
+        "requests.request",
+        side_effect=[mock_branches_response, mock_commits_response, mock_detail_response],
+    )
 
     since = datetime(2026, 7, 6, 0, 0, 0)
     until = datetime(2026, 7, 6, 23, 59, 59)
-    
+
     commits = github.fetch_commits("org/repo", "Test Author", since, until)
-    
+
     assert len(commits) == 1
     commit = commits[0]
     assert commit.hash == "abc12345"
@@ -46,8 +52,11 @@ def test_github_client_fetch_commits(mocker):
     assert commit.changed_files == ["db/schema.sql"]
     assert commit.additions == 5
     assert commit.deletions == 1
-    
-    # Confirm endpoint mapping
+
+    mock_req.assert_any_call(
+        "GET", "https://api.github.com/repos/org/repo/branches",
+        headers=mocker.ANY, params=mocker.ANY, timeout=mocker.ANY
+    )
     mock_req.assert_any_call(
         "GET", "https://api.github.com/repos/org/repo/commits",
         headers=mocker.ANY, params=mocker.ANY, timeout=mocker.ANY
