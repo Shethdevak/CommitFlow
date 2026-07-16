@@ -73,6 +73,51 @@ def test_split_hours_sums_to_goal():
     assert all(h > 0 for h in split_hours(8, 3))
 
 
+def test_weighted_hours_favor_large_features():
+    """Big feat gets more hours than a tiny quick fix; total still 8h."""
+    from app.models.domain import ClassifiedCommit
+    from app.services.todo_planner import score_commit, allocate_hours_by_weights
+
+    small = Commit(
+        hash="s1",
+        message="fix: typo in label",
+        author="u",
+        repository="org/repo",
+        committed_date=datetime(2026, 7, 16, 10, 0, 0),
+        changed_files=["a.tsx"],
+        additions=2,
+        deletions=1,
+    )
+    big = Commit(
+        hash="b1",
+        message="feat: implement event visibility management",
+        author="u",
+        repository="org/repo",
+        committed_date=datetime(2026, 7, 16, 12, 0, 0),
+        changed_files=[f"f{i}.tsx" for i in range(12)],
+        additions=280,
+        deletions=40,
+    )
+    medium = Commit(
+        hash="m1",
+        message="feat: enhance venue map preview",
+        author="u",
+        repository="org/repo",
+        committed_date=datetime(2026, 7, 16, 14, 0, 0),
+        changed_files=["map.tsx", "preview.tsx", "types.ts"],
+        additions=90,
+        deletions=20,
+    )
+
+    assert score_commit(big) > score_commit(medium) > score_commit(small)
+
+    hours = allocate_hours_by_weights(8.0, [score_commit(small), score_commit(big), score_commit(medium)])
+    assert round(sum(hours), 2) == 8.0
+    assert hours[1] > hours[0]  # big > small
+    assert hours[1] >= hours[2]  # big >= medium
+    assert hours[0] <= 1.5  # quick fix stays modest
+
+
 def test_todo_planner_pads_below_min():
     """1 commit → 3 to-dos totaling 8h."""
     from app.models.domain import ClassifiedCommit
@@ -83,6 +128,9 @@ def test_todo_planner_pads_below_min():
         author="u",
         repository="org/repo",
         committed_date=datetime(2026, 7, 10, 12, 0, 0),
+        changed_files=["login.ts"],
+        additions=15,
+        deletions=3,
     )
     classified = [
         ClassifiedCommit(
@@ -98,10 +146,13 @@ def test_todo_planner_pads_below_min():
     assert len(todos) == 3
     assert round(sum(t.hours for t in todos), 2) == 8.0
     assert sum(1 for t in todos if t.is_synthetic) == 2
+    # Main commit should get the largest share
+    assert todos[0].hours >= todos[1].hours
+    assert todos[0].hours >= todos[2].hours
 
 
 def test_todo_planner_one_per_commit_when_many():
-    """6 commits → 6 to-dos totaling 8h."""
+    """6 commits → 6 to-dos totaling 8h with unequal effort weights."""
     from app.models.domain import ClassifiedCommit
 
     classified = []
@@ -110,10 +161,13 @@ def test_todo_planner_one_per_commit_when_many():
             ClassifiedCommit(
                 commit=Commit(
                     hash=f"hash{i}",
-                    message=f"Work item {i}",
+                    message=f"feat: work item {i}" if i < 2 else f"fix: quick tweak {i}",
                     author="u",
                     repository="org/repo",
                     committed_date=datetime(2026, 7, 10, 12, 0, 0),
+                    changed_files=[f"f{j}.ts" for j in range(1 + i * 2)],
+                    additions=10 + i * 40,
+                    deletions=2 + i,
                 ),
                 project_name="Proj",
                 project_id=1,
@@ -126,6 +180,8 @@ def test_todo_planner_one_per_commit_when_many():
     assert len(todos) == 6
     assert round(sum(t.hours for t in todos), 2) == 8.0
     assert all(not t.is_synthetic for t in todos)
+    # Not all equal anymore
+    assert len(set(t.hours for t in todos)) > 1
 
 
 def test_feature_classifier_resolution(mock_redmine_features):
