@@ -32,6 +32,11 @@ logs/
 # Reports output
 reports/
 
+# Web multi-user data
+data/
+web/node_modules/
+web/dist/
+
 # IDE
 .vscode/
 .idea/

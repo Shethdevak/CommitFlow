@@ -458,3 +458,22 @@ class SyncService:
             error_msg = f"Failed to upsert to-do '{subject}': {e}"
             logger.error(error_msg)
             sync_result.errors.append(error_msg)
+
+    def apply_planned_todos(self, date_str: str, todos: List[WorkTodo]) -> SyncResult:
+        """Write an already-planned to-do list to Redmine (no fetch / AI re-run)."""
+        sync_result = SyncResult(
+            date=date_str,
+            processed_commits_count=0,
+            todos_planned=len(todos),
+            planned_todos=todos,
+            dry_run=False,
+        )
+        for todo in todos:
+            self._upsert_todo_and_time(todo, date_str, sync_result)
+        logger.info(
+            f"Applied {len(todos)} planned to-dos for {date_str}: "
+            f"created={len(sync_result.created_issues)}, "
+            f"updated={len(sync_result.updated_issues)}, "
+            f"hours={sync_result.hours_logged}."
+        )
+        return sync_result

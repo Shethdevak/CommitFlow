@@ -1,5 +1,4 @@
-import os
-from typing import Optional
+from typing import Any, Dict, Optional
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -7,7 +6,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore"
+        extra="ignore",
+        populate_by_name=True,
     )
 
     # Git Configuration
@@ -75,6 +75,12 @@ class Settings(BaseSettings):
     def validate_redmine_url(cls, v: str) -> str:
         return v.rstrip("/")
 
+    @classmethod
+    def from_mapping(cls, data: Dict[str, Any]) -> "Settings":
+        """Build Settings from a plain dict (web API). Does not read process .env."""
+        return cls(_env_file=None, **data)
+
+
 def load_settings() -> Settings:
-    """Helper to load and validate environment settings."""
+    """Load and validate environment settings (CLI / local .env)."""
     return Settings()

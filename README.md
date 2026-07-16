@@ -6,6 +6,8 @@ CommitFlow is a production-grade, extensible Python application designed to auto
 
 ## Quick Run (every day)
 
+### CLI (unchanged — still works)
+
 Open a terminal and run:
 
 ```bash
@@ -32,6 +34,30 @@ For a past date:
 ```bash
 .venv/bin/python3 -m app.cli sync --date 2026-07-09 --dry-run
 .venv/bin/python3 -m app.cli sync --date 2026-07-09
+```
+
+### Web app (multi-user — additive)
+
+Anyone can register, save their own tokens in Settings, then dry-run / sync from the UI.
+Your local CLI + `.env` keep working independently.
+
+```bash
+# Install API deps (once)
+.venv/bin/pip install -e .
+
+# Terminal A — API
+.venv/bin/uvicorn api.main:app --reload --port 8000
+
+# Terminal B — frontend
+cd web && npm install && npm run dev
+```
+
+Open http://localhost:5173 → Sign up → Settings (paste tokens) → Sync.
+
+Optional Docker:
+
+```bash
+docker compose up --build
 ```
 
 ---
