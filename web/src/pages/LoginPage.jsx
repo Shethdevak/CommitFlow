@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate, Link } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
 
 export default function LoginPage() {
@@ -28,55 +28,87 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <p className="eyebrow">CommitFlow</p>
-        <h1>{mode === "login" ? "Welcome back" : "Create your account"}</h1>
-        <p className="lede">Connect Git + Redmine once. Sync worklogs any day.</p>
+    <div className="login-stage">
+      <div className="login-mesh" aria-hidden="true" />
+      <section className="login-hero reveal">
+        <img
+          src="/logo.png"
+          alt="CommitFlow — git to redmine, automated"
+          className="brand-logo login-logo"
+        />
+        <h1>
+          Turn today’s commits
+          <br />
+          <em>into credible hours.</em>
+        </h1>
+        <p className="login-copy">
+          Connect GitHub, GitLab, and Redmine once. Preview weighted to-dos, then write an 8-hour
+          day that still looks like real engineering work.
+        </p>
+        <ul className="login-points">
+          <li>Skips merge noise</li>
+          <li>Weights big features vs quick fixes</li>
+          <li>Dry-run before Redmine write</li>
+        </ul>
+      </section>
 
-        <form onSubmit={onSubmit} className="stack">
+      <section className="login-panel reveal delay">
+        <div className="panel-head">
+          <h2>{mode === "login" ? "Sign in" : "Create account"}</h2>
+          <p>{mode === "login" ? "Continue to your sync desk." : "Start with email — add tokens next."}</p>
+        </div>
+
+        <form onSubmit={onSubmit} className="form-stack">
           {mode === "register" && (
-            <label>
-              Display name
+            <label className="field">
+              <span>Display name</span>
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Devak" />
             </label>
           )}
-          <label>
-            Email
+          <label className="field">
+            <span>Email</span>
             <input
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@company.com"
+              autoComplete="email"
             />
           </label>
-          <label>
-            Password
+          <label className="field">
+            <span>Password</span>
             <input
               type="password"
               required
               minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              autoComplete={mode === "login" ? "current-password" : "new-password"}
             />
           </label>
-          {error && <p className="error">{error}</p>}
-          <button type="submit" disabled={busy}>
-            {busy ? "Please wait…" : mode === "login" ? "Log in" : "Sign up"}
+          {error && <p className="banner-error">{error}</p>}
+          <button type="submit" className="btn-primary wide" disabled={busy}>
+            {busy ? "Working…" : mode === "login" ? "Enter CommitFlow" : "Create account"}
           </button>
         </form>
 
-        <div className="divider">or</div>
-        <a className="github-btn" href="http://localhost:8000/api/auth/github/login">
+        <div className="or-row">
+          <span>or</span>
+        </div>
+        <a className="btn-secondary wide" href="http://localhost:8000/api/auth/github/login">
           Continue with GitHub
         </a>
-        <p className="muted tiny">GitHub login needs server OAuth keys. Email signup always works.</p>
+        <p className="fineprint">GitHub login needs OAuth keys on the server. Email always works.</p>
 
-        <button type="button" className="linkish" onClick={() => setMode(mode === "login" ? "register" : "login")}>
-          {mode === "login" ? "Need an account? Sign up" : "Have an account? Log in"}
+        <button
+          type="button"
+          className="text-switch"
+          onClick={() => setMode(mode === "login" ? "register" : "login")}
+        >
+          {mode === "login" ? "New here? Create an account" : "Already set up? Sign in"}
         </button>
-      </div>
+      </section>
     </div>
   );
 }
