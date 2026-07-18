@@ -268,3 +268,50 @@ class RedmineClient:
         except Exception as e:
             logger.error(f"Failed to fetch time entries for issue #{issue_id}: {e}")
             return []
+
+    def list_time_entries_for_date(self, spent_on: str) -> List[Dict[str, Any]]:
+        """List the current user's time entries for a spent_on date (YYYY-MM-DD).
+
+        Returns normalized dicts suitable for the day-log UI.
+        """
+        entries: List[Dict[str, Any]] = []
+        offset = 0
+        limit = 100
+
+        try:
+            while True:
+                params = {
+                    "spent_on": spent_on,
+                    "user_id": "me",
+                    "offset": offset,
+                    "limit": limit,
+                }
+                response = self._request("GET", "time_entries.json", params=params)
+                data = response.json()
+                batch = data.get("time_entries", [])
+                if not batch:
+                    break
+
+                for entry in batch:
+                    issue = entry.get("issue") or {}
+                    project = entry.get("project") or {}
+                    entries.append(
+                        {
+                            "id": entry.get("id"),
+                            "hours": float(entry.get("hours") or 0),
+                            "spent_on": entry.get("spent_on") or spent_on,
+                            "comments": entry.get("comments") or "",
+                            "issue_id": issue.get("id"),
+                            "issue_subject": issue.get("name") or "",
+                            "project_name": project.get("name") or "",
+                        }
+                    )
+
+                if len(batch) < limit:
+                    break
+                offset += limit
+        except Exception as e:
+            logger.error(f"Failed to list time entries for {spent_on}: {e}")
+            raise e
+
+        return entries

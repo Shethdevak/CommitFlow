@@ -158,5 +158,24 @@ class SyncResultOut(BaseModel):
     planned_todos: list[PlannedTodoOut]
 
 
+class RedmineDayEntryOut(BaseModel):
+    id: Optional[int] = None
+    hours: float
+    spent_on: str
+    comments: str = ""
+    issue_id: Optional[int] = None
+    issue_subject: str = ""
+    project_name: str = ""
+    issue_url: Optional[str] = None
+
+
+class RedmineDayOut(BaseModel):
+    date: str
+    total_hours: float
+    entry_count: int
+    redmine_url: str
+    entries: list[RedmineDayEntryOut]
+
+
 TokenResponse.model_rebuild()
 AuthResponse.model_rebuild()

@@ -4,6 +4,7 @@ import { useAuth } from "./auth.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
 import SyncPage from "./pages/SyncPage.jsx";
+import TodosPage from "./pages/TodosPage.jsx";
 import AuthCallback from "./pages/AuthCallback.jsx";
 
 function Shell({ children }) {
@@ -50,9 +51,15 @@ function Shell({ children }) {
             </span>
             Sync desk
           </NavLink>
-          <NavLink to="/settings" className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}>
+          <NavLink to="/todos" className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}>
             <span className="nav-ico" aria-hidden="true">
               ▤
+            </span>
+            Day log
+          </NavLink>
+          <NavLink to="/settings" className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}>
+            <span className="nav-ico" aria-hidden="true">
+              ◈
             </span>
             Integrations
           </NavLink>
@@ -147,6 +154,14 @@ export default function App() {
         element={
           <Private>
             <SyncPage />
+          </Private>
+        }
+      />
+      <Route
+        path="/todos"
+        element={
+          <Private>
+            <TodosPage />
           </Private>
         }
       />

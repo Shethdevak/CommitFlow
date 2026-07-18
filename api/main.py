@@ -11,6 +11,7 @@ from api.db.session import init_api_db
 from api.routers import auth as auth_router
 from api.routers import settings as settings_router
 from api.routers import sync as sync_router
+from api.routers import redmine as redmine_router
 
 app = FastAPI(
     title="CommitFlow API",
@@ -41,6 +42,7 @@ app.add_middleware(
 app.include_router(auth_router.router, prefix="/api")
 app.include_router(settings_router.router, prefix="/api")
 app.include_router(sync_router.router, prefix="/api")
+app.include_router(redmine_router.router, prefix="/api")
 
 
 @app.get("/api/health")
