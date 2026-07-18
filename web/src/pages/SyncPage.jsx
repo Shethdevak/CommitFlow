@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import { loadSyncDeskState, saveSyncDeskState } from "../syncDeskState";
 
@@ -34,37 +34,30 @@ export default function SyncPage() {
   const [date, setDate] = useState(() => initial?.date ?? "");
   const [busy, setBusy] = useState(false);
   const [committing, setCommitting] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState(() => initial?.error ?? "");
   const [result, setResult] = useState(() =>
     initial?.result ? normalizeResult(initial.result) : null
   );
-  const [selected, setSelected] = useState(() => {
-    const todos = initial?.result?.planned_todos || [];
-    return new Set(stampTodos(todos).map((t) => t._uid));
-  });
+
+  /** @type {null | { type: 'commit-one' | 'commit-all' | 'delete', todo?: object }} */
+  const [dialog, setDialog] = useState(null);
 
   useEffect(() => {
     saveSyncDeskState({ date, dryRun, result, error });
   }, [date, dryRun, result, error]);
 
   useEffect(() => {
-    if (!confirmOpen) return undefined;
+    if (!dialog) return undefined;
     const onKey = (e) => {
-      if (e.key === "Escape" && !committing) setConfirmOpen(false);
+      if (e.key === "Escape" && !committing) setDialog(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [confirmOpen, committing]);
+  }, [dialog, committing]);
 
   const todos = result?.planned_todos || [];
-  const selectedTodos = useMemo(
-    () => todos.filter((t) => selected.has(t._uid)),
-    [todos, selected]
-  );
-  const selectedHours = sumHours(selectedTodos);
   const editable = Boolean(result?.dry_run && todos.length > 0);
-  const canCommit = editable && selectedTodos.length > 0 && !busy && !committing;
+  const canCommitAll = editable && !busy && !committing;
   const maxHours = todos.length ? Math.max(...todos.map((t) => Number(t.hours) || 0), 0.25) : 1;
 
   function updateTodos(nextTodos) {
@@ -78,10 +71,6 @@ export default function SyncPage() {
         hours_logged: sumHours(planned),
       };
     });
-    setSelected((prev) => {
-      const ids = new Set(stampTodos(nextTodos).map((t) => t._uid));
-      return new Set([...prev].filter((id) => ids.has(id)));
-    });
   }
 
   function setHours(uid, raw) {
@@ -89,45 +78,17 @@ export default function SyncPage() {
     updateTodos(todos.map((t) => (t._uid === uid ? { ...t, hours } : t)));
   }
 
-  function removeTodo(uid) {
-    updateTodos(todos.filter((t) => t._uid !== uid));
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.delete(uid);
-      return next;
-    });
-  }
-
-  function toggleSelected(uid) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(uid)) next.delete(uid);
-      else next.add(uid);
-      return next;
-    });
-  }
-
-  function selectAll() {
-    setSelected(new Set(todos.map((t) => t._uid)));
-  }
-
-  function selectNone() {
-    setSelected(new Set());
-  }
-
   async function run() {
     setBusy(true);
     setError("");
     setResult(null);
-    setSelected(new Set());
+    setDialog(null);
     try {
       const data = await api("/api/sync", {
         method: "POST",
         body: { dry_run: dryRun, today: !date, date: date || null },
       });
-      const normalized = normalizeResult(data);
-      setResult(normalized);
-      setSelected(new Set(normalized.planned_todos.map((t) => t._uid)));
+      setResult(normalizeResult(data));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -135,13 +96,8 @@ export default function SyncPage() {
     }
   }
 
-  function openCommitConfirm() {
-    if (!canCommit) return;
-    setConfirmOpen(true);
-  }
-
-  async function confirmCommit() {
-    if (!canCommit || !result) return;
+  async function writeTodos(todosToWrite) {
+    if (!result || !todosToWrite.length) return;
 
     setCommitting(true);
     setError("");
@@ -150,27 +106,75 @@ export default function SyncPage() {
         method: "POST",
         body: {
           date: result.date,
-          planned_todos: stripClientFields(selectedTodos),
+          planned_todos: stripClientFields(todosToWrite),
         },
       });
-      setResult(normalizeResult(data));
-      setSelected(new Set());
-      setConfirmOpen(false);
+      // Keep remaining uncommitted preview rows when committing one / subset
+      const writtenUids = new Set(todosToWrite.map((t) => t._uid));
+      const remaining = todos.filter((t) => !writtenUids.has(t._uid));
+      if (remaining.length > 0 && data.dry_run === false) {
+        setResult({
+          ...normalizeResult(data),
+          dry_run: true,
+          planned_todos: remaining,
+          todos_planned: remaining.length,
+          hours_logged: sumHours(remaining),
+          // Keep a note that a write happened
+          errors: [
+            ...(data.errors || []),
+            `Committed ${todosToWrite.length} to-do(s). ${remaining.length} still in your plan.`,
+          ],
+        });
+      } else {
+        setResult(normalizeResult(data));
+      }
+      setDialog(null);
     } catch (err) {
       setError(err.message);
-      setConfirmOpen(false);
+      setDialog(null);
     } finally {
       setCommitting(false);
     }
   }
+
+  function confirmDialog() {
+    if (!dialog) return;
+    if (dialog.type === "delete" && dialog.todo) {
+      updateTodos(todos.filter((t) => t._uid !== dialog.todo._uid));
+      setDialog(null);
+      return;
+    }
+    if (dialog.type === "commit-one" && dialog.todo) {
+      const fresh = todos.find((t) => t._uid === dialog.todo._uid) || dialog.todo;
+      writeTodos([fresh]);
+      return;
+    }
+    if (dialog.type === "commit-all") {
+      writeTodos(todos);
+    }
+  }
+
+  const dialogTitle =
+    dialog?.type === "delete"
+      ? "Remove this to-do?"
+      : dialog?.type === "commit-one"
+        ? "Commit this to-do?"
+        : "Commit all to-dos?";
+
+  const dialogCopy =
+    dialog?.type === "delete"
+      ? "It will leave your day plan. Hours are not auto-moved — edit another row if you want to reassign time."
+      : dialog?.type === "commit-one"
+        ? "Only this to-do will be written to Redmine with the hours shown. Other rows stay in your plan."
+        : "All remaining to-dos in this plan will be written to Redmine with your edited hours.";
 
   return (
     <div className="page-block reveal">
       <header className="page-intro">
         <h1>Sync desk</h1>
         <p>
-          Scan commits, weight the day, preview the plan — edit hours or drop to-dos, then commit
-          only what you select.
+          Scan commits, weight the day, preview the plan — edit hours, remove rows, or commit one
+          to-do at a time.
         </p>
       </header>
 
@@ -190,9 +194,14 @@ export default function SyncPage() {
           <button type="button" className="btn-primary" onClick={run} disabled={busy || committing}>
             {busy ? "Scanning…" : dryRun ? "Preview plan" : "Sync to Redmine"}
           </button>
-          {canCommit && (
-            <button type="button" className="btn-accent" onClick={openCommitConfirm} disabled={committing}>
-              Commit selected ({selectedTodos.length})
+          {canCommitAll && (
+            <button
+              type="button"
+              className="btn-accent"
+              onClick={() => setDialog({ type: "commit-all" })}
+              disabled={committing}
+            >
+              Commit all
             </button>
           )}
         </div>
@@ -226,19 +235,24 @@ export default function SyncPage() {
           {editable && (
             <div className="commit-callout">
               <div>
-                <h3>Edit, then write {result.date}</h3>
+                <h3>Plan for {result.date}</h3>
                 <p>
-                  Change hours, remove rows you don’t want, and commit only the checked to-dos —
-                  {selectedTodos.length} selected · {selectedHours}h.
+                  Edit hours on a row, commit that row alone, or remove it. Use Commit all when the
+                  whole plan looks right.
                 </p>
               </div>
-              <button type="button" className="btn-accent" onClick={openCommitConfirm} disabled={!canCommit}>
-                Commit selected
+              <button
+                type="button"
+                className="btn-accent"
+                onClick={() => setDialog({ type: "commit-all" })}
+                disabled={!canCommitAll}
+              >
+                Commit all
               </button>
             </div>
           )}
 
-          {!result.dry_run && (
+          {!result.dry_run && todos.length === 0 && (
             <p className="banner-ok">
               Redmine updated — created {result.created_issues?.length || 0}, updated{" "}
               {result.updated_issues?.length || 0}, time entries {result.time_entries_created}.
@@ -262,44 +276,21 @@ export default function SyncPage() {
                 <h2>Day plan</h2>
                 <p>
                   {editable
-                    ? "Tick what to commit. Edit hours or remove a row — then move time into another."
+                    ? "Change hours, then Commit on a row — or Remove it from the plan."
                     : result.date
                       ? `Plan for ${result.date}`
                       : "Bar width reflects relative hours in this plan."}
                 </p>
               </div>
-              {editable && (
-                <div className="plan-head-actions">
-                  <button type="button" className="text-switch" onClick={selectAll}>
-                    Select all
-                  </button>
-                  <button type="button" className="text-switch" onClick={selectNone}>
-                    Select none
-                  </button>
-                </div>
-              )}
             </div>
             <ol>
               {todos.map((t, i) => (
                 <li
                   key={t._uid}
-                  className={`plan-row ${editable ? "is-editable" : ""} ${
-                    editable && !selected.has(t._uid) ? "is-deselected" : ""
-                  }`}
+                  className={`plan-row ${editable ? "is-editable" : ""}`}
                   style={{ "--i": i }}
                 >
-                  {editable ? (
-                    <label className="plan-check">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(t._uid)}
-                        onChange={() => toggleSelected(t._uid)}
-                        aria-label={`Include “${t.subject}” in commit`}
-                      />
-                    </label>
-                  ) : (
-                    <div className="plan-index">{String(i + 1).padStart(2, "0")}</div>
-                  )}
+                  <div className="plan-index">{String(i + 1).padStart(2, "0")}</div>
                   <div className="plan-body">
                     <div className="plan-topline">
                       <p className="plan-subject">{t.subject}</p>
@@ -326,19 +317,30 @@ export default function SyncPage() {
                       <span className={t.is_synthetic ? "chip soft" : "chip"}>
                         {t.is_synthetic ? "support" : "commit"}
                       </span>
-                      {editable && (
-                        <button
-                          type="button"
-                          className="plan-remove"
-                          onClick={() => removeTodo(t._uid)}
-                        >
-                          Remove
-                        </button>
-                      )}
                     </div>
                     <div className="plan-bar" aria-hidden="true">
                       <span style={{ width: `${Math.max(8, (t.hours / maxHours) * 100)}%` }} />
                     </div>
+                    {editable && (
+                      <div className="plan-row-actions">
+                        <button
+                          type="button"
+                          className="btn-row-commit"
+                          disabled={committing || !(Number(t.hours) > 0)}
+                          onClick={() => setDialog({ type: "commit-one", todo: t })}
+                        >
+                          Commit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-row-remove"
+                          disabled={committing}
+                          onClick={() => setDialog({ type: "delete", todo: t })}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </li>
               ))}
@@ -354,69 +356,84 @@ export default function SyncPage() {
         </section>
       )}
 
-      {confirmOpen && result && (
+      {dialog && (
         <div
           className="modal-backdrop"
           role="presentation"
-          onClick={() => !committing && setConfirmOpen(false)}
+          onClick={() => !committing && setDialog(null)}
         >
           <div
             className="modal-card"
             role="dialog"
             aria-modal="true"
-            aria-labelledby="commit-modal-title"
+            aria-labelledby="plan-dialog-title"
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="modal-kicker">Write to Redmine</p>
-            <h2 id="commit-modal-title">Commit selected to-dos?</h2>
-            <p className="modal-copy">
-              Only the checked items (with your edited hours) will be written. Unchecked rows stay
-              out of Redmine.
+            <p className={`modal-kicker ${dialog.type === "delete" ? "modal-kicker-danger" : ""}`}>
+              {dialog.type === "delete" ? "Remove from plan" : "Write to Redmine"}
             </p>
+            <h2 id="plan-dialog-title">{dialogTitle}</h2>
+            <p className="modal-copy">{dialogCopy}</p>
 
-            <div className="modal-stats">
-              <div>
-                <span>Date</span>
-                <strong>{result.date}</strong>
-              </div>
-              <div>
-                <span>To-dos</span>
-                <strong>{selectedTodos.length}</strong>
-              </div>
-              <div>
-                <span>Hours</span>
-                <strong>{selectedHours}h</strong>
-              </div>
-            </div>
-
-            <ul className="modal-preview">
-              {selectedTodos.slice(0, 4).map((t) => (
-                <li key={t._uid}>
-                  <span>{t.hours}h</span>
-                  <p>{t.subject}</p>
+            {dialog.todo && (
+              <ul className="modal-preview">
+                <li>
+                  <span>{dialog.todo.hours}h</span>
+                  <p>{dialog.todo.subject}</p>
                 </li>
-              ))}
-              {selectedTodos.length > 4 && (
-                <li className="more">+{selectedTodos.length - 4} more</li>
-              )}
-            </ul>
+              </ul>
+            )}
+
+            {dialog.type === "commit-all" && (
+              <>
+                <div className="modal-stats">
+                  <div>
+                    <span>Date</span>
+                    <strong>{result?.date}</strong>
+                  </div>
+                  <div>
+                    <span>To-dos</span>
+                    <strong>{todos.length}</strong>
+                  </div>
+                  <div>
+                    <span>Hours</span>
+                    <strong>{result?.hours_logged}h</strong>
+                  </div>
+                </div>
+                <ul className="modal-preview">
+                  {todos.slice(0, 4).map((t) => (
+                    <li key={t._uid}>
+                      <span>{t.hours}h</span>
+                      <p>{t.subject}</p>
+                    </li>
+                  ))}
+                  {todos.length > 4 && <li className="more">+{todos.length - 4} more</li>}
+                </ul>
+              </>
+            )}
 
             <div className="modal-actions">
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={() => setConfirmOpen(false)}
+                onClick={() => setDialog(null)}
                 disabled={committing}
               >
                 Cancel
               </button>
               <button
                 type="button"
-                className="btn-accent"
-                onClick={confirmCommit}
-                disabled={committing || selectedTodos.length === 0}
+                className={dialog.type === "delete" ? "btn-danger" : "btn-accent"}
+                onClick={confirmDialog}
+                disabled={committing}
               >
-                {committing ? "Writing…" : "Yes, write to Redmine"}
+                {committing
+                  ? "Working…"
+                  : dialog.type === "delete"
+                    ? "Yes, remove"
+                    : dialog.type === "commit-one"
+                      ? "Yes, commit this"
+                      : "Yes, write all"}
               </button>
             </div>
           </div>
