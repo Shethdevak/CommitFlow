@@ -561,7 +561,12 @@ button:disabled { opacity: 0.55; cursor: wait; }
   font-size: 1.35rem;
   font-weight: 560;
 }
-.plan-head p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+.plan-head p { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.85rem; }
+.plan-head-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
 .plan-list ol { list-style: none; margin: 0; padding: 0; }
 .plan-row {
   display: grid;
@@ -571,8 +576,28 @@ button:disabled { opacity: 0.55; cursor: wait; }
   border-bottom: 1px solid var(--line);
   animation: rise 0.45s ease both;
   animation-delay: calc(var(--i, 0) * 0.04s);
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+.plan-row.is-editable {
+  grid-template-columns: 40px 1fr;
+  align-items: start;
+}
+.plan-row.is-deselected {
+  opacity: 0.48;
+  background: rgba(20, 24, 28, 0.02);
 }
 .plan-row:last-child { border-bottom: 0; }
+.plan-check {
+  display: grid;
+  place-items: start center;
+  padding-top: 0.35rem;
+}
+.plan-check input {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: var(--teal);
+  cursor: pointer;
+}
 .plan-index {
   font-family: var(--font-display);
   color: var(--muted);
@@ -597,6 +622,31 @@ button:disabled { opacity: 0.55; cursor: wait; }
   color: var(--accent-deep);
   white-space: nowrap;
 }
+.plan-hours-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+  color: var(--accent-deep);
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+.plan-hours-edit input {
+  width: 4.2rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.35rem 0.45rem;
+  text-align: right;
+  font: inherit;
+  color: var(--ink);
+  background: #fff;
+}
+.plan-hours-edit input:focus {
+  outline: none;
+  border-color: rgba(31, 111, 99, 0.55);
+  box-shadow: 0 0 0 3px rgba(31, 111, 99, 0.12);
+}
 .plan-meta {
   display: flex;
   flex-wrap: wrap;
@@ -604,6 +654,26 @@ button:disabled { opacity: 0.55; cursor: wait; }
   margin-top: 0.35rem;
   color: var(--muted);
   font-size: 0.82rem;
+  align-items: center;
+}
+.plan-remove {
+  border: 0;
+  background: transparent;
+  color: var(--danger);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.1rem 0.35rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.plan-remove:hover {
+  background: rgba(155, 44, 44, 0.08);
+}
+.plan-empty {
+  margin: 0;
+  padding: 1.25rem 1.15rem;
+  color: var(--muted);
 }
 .chip {
   border: 1px solid var(--line);

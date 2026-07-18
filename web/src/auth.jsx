@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useMemo, useState, useEffect, useCallback } from "react";
 import { api } from "./api";
+import { clearSyncDeskState } from "./syncDeskState";
 
 const AuthContext = createContext(null);
 
@@ -57,6 +58,7 @@ export function AuthProvider({ children }) {
         } catch {
           /* still clear local session */
         }
+        clearSyncDeskState();
         setUser(null);
       },
     }),
