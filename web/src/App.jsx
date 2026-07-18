@@ -66,7 +66,7 @@ function Shell({ children }) {
               <p className="who-meta">Signed in</p>
             </div>
           </div>
-          <button type="button" className="btn-quiet" onClick={() => setConfirmOut(true)}>
+          <button type="button" className="btn-quiet btn-signout" onClick={() => setConfirmOut(true)}>
             Sign out
           </button>
         </div>
@@ -93,7 +93,7 @@ function Shell({ children }) {
             aria-labelledby="signout-modal-title"
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="modal-kicker">Session</p>
+            <p className="modal-kicker modal-kicker-danger">Session</p>
             <h2 id="signout-modal-title">Sign out of CommitFlow?</h2>
             <p className="modal-copy">
               You’ll need to sign in again to sync or update integrations on this browser.
@@ -109,7 +109,7 @@ function Shell({ children }) {
               </button>
               <button
                 type="button"
-                className="btn-accent"
+                className="btn-danger"
                 disabled={signingOut}
                 onClick={confirmSignOut}
               >
