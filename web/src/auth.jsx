@@ -1,39 +1,39 @@
-import React, { createContext, useContext, useMemo, useState, useEffect } from "react";
+import React, { createContext, useContext, useMemo, useState, useEffect, useCallback } from "react";
 import { api } from "./api";
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem("cf_token") || "");
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(!!token);
+  const [loading, setLoading] = useState(true);
+
+  const loadUser = useCallback(async () => {
+    try {
+      const me = await api("/api/auth/me");
+      setUser(me);
+      return me;
+    } catch {
+      setUser(null);
+      return null;
+    }
+  }, []);
 
   useEffect(() => {
-    if (!token) {
-      setUser(null);
-      setLoading(false);
-      return;
+    try {
+      localStorage.removeItem("cf_token");
+    } catch {
+      /* ignore */
     }
-    setLoading(true);
-    api("/api/auth/me", { token })
-      .then(setUser)
-      .catch(() => {
-        localStorage.removeItem("cf_token");
-        setToken("");
-        setUser(null);
-      })
-      .finally(() => setLoading(false));
-  }, [token]);
+    loadUser().finally(() => setLoading(false));
+  }, [loadUser]);
 
   const value = useMemo(
     () => ({
-      token,
       user,
       loading,
+      isAuthenticated: !!user,
       async login(email, password) {
         const data = await api("/api/auth/login", { method: "POST", body: { email, password } });
-        localStorage.setItem("cf_token", data.access_token);
-        setToken(data.access_token);
         setUser(data.user);
       },
       async register(email, password, display_name) {
@@ -41,21 +41,26 @@ export function AuthProvider({ children }) {
           method: "POST",
           body: { email, password, display_name },
         });
-        localStorage.setItem("cf_token", data.access_token);
-        setToken(data.access_token);
         setUser(data.user);
       },
-      acceptToken(accessToken) {
-        localStorage.setItem("cf_token", accessToken);
-        setToken(accessToken);
+      async refreshUser() {
+        setLoading(true);
+        try {
+          return await loadUser();
+        } finally {
+          setLoading(false);
+        }
       },
-      logout() {
-        localStorage.removeItem("cf_token");
-        setToken("");
+      async logout() {
+        try {
+          await api("/api/auth/logout", { method: "POST" });
+        } catch {
+          /* still clear local session */
+        }
         setUser(null);
       },
     }),
-    [token, user, loading]
+    [user, loading, loadUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -3,20 +3,20 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
 
 export default function AuthCallback() {
-  const { acceptToken } = useAuth();
+  const { refreshUser } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    const hash = window.location.hash.replace(/^#/, "");
-    const params = new URLSearchParams(hash);
-    const access = params.get("access_token");
-    if (access) {
-      acceptToken(access);
-      navigate("/", { replace: true });
-    } else {
-      navigate("/login", { replace: true });
-    }
-  }, [acceptToken, navigate]);
+    let cancelled = false;
+    (async () => {
+      const user = await refreshUser();
+      if (cancelled) return;
+      navigate(user ? "/" : "/login", { replace: true });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshUser, navigate]);
 
   return <div className="center">Signing you in…</div>;
 }

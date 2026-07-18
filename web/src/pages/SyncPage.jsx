@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { useAuth } from "../auth.jsx";
 
 export default function SyncPage() {
-  const { token } = useAuth();
   const [dryRun, setDryRun] = useState(true);
   const [date, setDate] = useState("");
   const [busy, setBusy] = useState(false);
@@ -28,7 +26,6 @@ export default function SyncPage() {
     try {
       const data = await api("/api/sync", {
         method: "POST",
-        token,
         body: { dry_run: dryRun, today: !date, date: date || null },
       });
       setResult(data);
@@ -52,7 +49,6 @@ export default function SyncPage() {
     try {
       const data = await api("/api/sync/commit", {
         method: "POST",
-        token,
         body: { date: result.date, planned_todos: result.planned_todos },
       });
       setResult(data);

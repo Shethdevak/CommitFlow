@@ -3,7 +3,7 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
 
 export default function LoginPage() {
-  const { token, login, register } = useAuth();
+  const { isAuthenticated, login, register } = useAuth();
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -11,7 +11,10 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  if (token) return <Navigate to="/" replace />;
+  if (isAuthenticated) return <Navigate to="/" replace />;
+
+  const apiBase = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const githubLoginUrl = `${apiBase}/api/auth/github/login`;
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -96,7 +99,7 @@ export default function LoginPage() {
         <div className="or-row">
           <span>or</span>
         </div>
-        <a className="btn-secondary wide" href="http://localhost:8000/api/auth/github/login">
+        <a className="btn-secondary wide" href={githubLoginUrl}>
           Continue with GitHub
         </a>
         <p className="fineprint">GitHub login needs OAuth keys on the server. Email always works.</p>

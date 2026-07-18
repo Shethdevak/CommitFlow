@@ -13,7 +13,15 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class AuthResponse(BaseModel):
+    """Login/register response — JWT is set as an HttpOnly cookie, not returned in JSON."""
+
+    user: "UserOut"
+
+
 class TokenResponse(BaseModel):
+    """Deprecated shape kept for compatibility with older clients."""
+
     access_token: str
     token_type: str = "bearer"
     user: "UserOut"
@@ -128,3 +136,4 @@ class SyncResultOut(BaseModel):
 
 
 TokenResponse.model_rebuild()
+AuthResponse.model_rebuild()

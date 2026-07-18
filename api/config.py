@@ -21,6 +21,7 @@ class ApiSettings(BaseSettings):
     api_database_url: str = Field("sqlite:///./data/commitflow_web.db", validation_alias="API_DATABASE_URL")
     api_user_data_dir: str = Field("data/users", validation_alias="API_USER_DATA_DIR")
     api_frontend_url: str = Field("http://localhost:5173", validation_alias="API_FRONTEND_URL")
+    api_public_url: str = Field("http://localhost:8000", validation_alias="API_PUBLIC_URL")
     jwt_expire_hours: int = Field(72, validation_alias="JWT_EXPIRE_HOURS")
 
     # GitHub OAuth (login with GitHub — optional)

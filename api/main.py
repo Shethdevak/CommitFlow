@@ -29,9 +29,10 @@ def on_startup():
 
 cfg = get_api_settings()
 origins = [o.strip() for o in cfg.api_cors_origins.split(",") if o.strip()]
+# Credentials (HttpOnly cookies) require explicit origins — never "*".
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins or ["*"],
+    allow_origins=origins or ["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

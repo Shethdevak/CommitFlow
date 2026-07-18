@@ -1,21 +1,22 @@
 import secrets
 from urllib.parse import urlencode
 import requests
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from api.db.session import get_db
 from api.db.models import User, UserSettings
-from api.schemas import RegisterRequest, LoginRequest, TokenResponse, UserOut
+from api.schemas import RegisterRequest, LoginRequest, AuthResponse, UserOut
 from api.auth.tokens import hash_password, verify_password, create_access_token
 from api.auth.deps import get_current_user
+from api.auth.cookies import set_auth_cookie, clear_auth_cookie
 from api.config import get_api_settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=TokenResponse)
-def register(body: RegisterRequest, db: Session = Depends(get_db)):
+@router.post("/register", response_model=AuthResponse)
+def register(body: RegisterRequest, response: Response, db: Session = Depends(get_db)):
     existing = db.query(User).filter(User.email == body.email.lower()).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -32,16 +33,24 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     db.refresh(user)
 
     token = create_access_token(user.id, user.email)
-    return TokenResponse(access_token=token, user=UserOut.model_validate(user))
+    set_auth_cookie(response, token)
+    return AuthResponse(user=UserOut.model_validate(user))
 
 
-@router.post("/login", response_model=TokenResponse)
-def login(body: LoginRequest, db: Session = Depends(get_db)):
+@router.post("/login", response_model=AuthResponse)
+def login(body: LoginRequest, response: Response, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == body.email.lower()).first()
     if not user or not user.password_hash or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     token = create_access_token(user.id, user.email)
-    return TokenResponse(access_token=token, user=UserOut.model_validate(user))
+    set_auth_cookie(response, token)
+    return AuthResponse(user=UserOut.model_validate(user))
+
+
+@router.post("/logout")
+def logout(response: Response):
+    clear_auth_cookie(response)
+    return {"ok": True}
 
 
 @router.get("/me", response_model=UserOut)
@@ -55,7 +64,7 @@ def github_login():
     if not settings.github_oauth_client_id:
         raise HTTPException(status_code=501, detail="GitHub OAuth is not configured on the server")
 
-    redirect_uri = "http://localhost:8000/api/auth/github/callback"
+    redirect_uri = f"{_api_public_base()}/api/auth/github/callback"
     params = urlencode({
         "client_id": settings.github_oauth_client_id,
         "redirect_uri": redirect_uri,
@@ -71,6 +80,7 @@ def github_callback(code: str, db: Session = Depends(get_db)):
     if not settings.github_oauth_client_id or not settings.github_oauth_client_secret:
         raise HTTPException(status_code=501, detail="GitHub OAuth is not configured")
 
+    redirect_uri = f"{_api_public_base()}/api/auth/github/callback"
     token_res = requests.post(
         "https://github.com/login/oauth/access_token",
         headers={"Accept": "application/json"},
@@ -78,7 +88,7 @@ def github_callback(code: str, db: Session = Depends(get_db)):
             "client_id": settings.github_oauth_client_id,
             "client_secret": settings.github_oauth_client_secret,
             "code": code,
-            "redirect_uri": "http://localhost:8000/api/auth/github/callback",
+            "redirect_uri": redirect_uri,
         },
         timeout=20,
     )
@@ -127,5 +137,11 @@ def github_callback(code: str, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
     jwt_token = create_access_token(user.id, user.email)
-    dest = f"{settings.api_frontend_url.rstrip('/')}/auth/callback#access_token={jwt_token}"
-    return RedirectResponse(dest)
+    dest = f"{settings.api_frontend_url.rstrip('/')}/auth/callback"
+    resp = RedirectResponse(dest)
+    set_auth_cookie(resp, jwt_token)
+    return resp
+
+
+def _api_public_base() -> str:
+    return get_api_settings().api_public_url.rstrip("/")

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { useAuth } from "../auth.jsx";
 
 const SECTIONS = [
   {
@@ -65,21 +64,20 @@ const SECRET_KEYS = [
 ];
 
 export default function SettingsPage() {
-  const { token } = useAuth();
   const [form, setForm] = useState({});
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api("/api/settings", { token })
+    api("/api/settings")
       .then((data) => {
         const next = { ...data };
         for (const key of SECRET_KEYS) next[key] = "";
         setForm(next);
       })
       .catch((e) => setError(e.message));
-  }, [token]);
+  }, []);
 
   function setField(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -100,7 +98,7 @@ export default function SettingsPage() {
       if (body.project_match_threshold != null) {
         body.project_match_threshold = Number(body.project_match_threshold);
       }
-      const saved = await api("/api/settings", { method: "PUT", token, body });
+      const saved = await api("/api/settings", { method: "PUT", body });
       setMsg("Integrations saved.");
       const next = { ...saved };
       for (const key of SECRET_KEYS) next[key] = "";

@@ -62,7 +62,7 @@ function Shell({ children }) {
 }
 
 function Private({ children }) {
-  const { token, loading } = useAuth();
+  const { isAuthenticated, loading } = useAuth();
   if (loading) {
     return (
       <div className="boot">
@@ -71,7 +71,7 @@ function Private({ children }) {
       </div>
     );
   }
-  if (!token) return <Navigate to="/login" replace />;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <Shell>{children}</Shell>;
 }
 
