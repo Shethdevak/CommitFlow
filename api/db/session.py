@@ -8,11 +8,21 @@ _engine = None
 _SessionLocal = None
 
 
+def _normalize_database_url(url: str) -> str:
+    """Render often gives postgres://; SQLAlchemy + psycopg3 need postgresql+psycopg://."""
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://") :]
+    if url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://") :]
+    return url
+
+
 def init_api_db() -> None:
     global _engine, _SessionLocal
     settings = get_api_settings()
-    connect_args = {"check_same_thread": False} if settings.api_database_url.startswith("sqlite") else {}
-    _engine = create_engine(settings.api_database_url, connect_args=connect_args)
+    url = _normalize_database_url(settings.api_database_url)
+    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+    _engine = create_engine(url, connect_args=connect_args)
     _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
     Base.metadata.create_all(bind=_engine)
 
