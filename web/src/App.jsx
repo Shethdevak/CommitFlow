@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
@@ -7,7 +8,28 @@ import AuthCallback from "./pages/AuthCallback.jsx";
 
 function Shell({ children }) {
   const { user, logout } = useAuth();
+  const [confirmOut, setConfirmOut] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const label = user?.display_name || user?.email || user?.github_login || "Account";
+
+  useEffect(() => {
+    if (!confirmOut) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape" && !signingOut) setConfirmOut(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirmOut, signingOut]);
+
+  async function confirmSignOut() {
+    setSigningOut(true);
+    try {
+      await logout();
+    } finally {
+      setSigningOut(false);
+      setConfirmOut(false);
+    }
+  }
 
   return (
     <div className="app-frame">
@@ -44,7 +66,7 @@ function Shell({ children }) {
               <p className="who-meta">Signed in</p>
             </div>
           </div>
-          <button type="button" className="btn-quiet" onClick={logout}>
+          <button type="button" className="btn-quiet" onClick={() => setConfirmOut(true)}>
             Sign out
           </button>
         </div>
@@ -57,6 +79,46 @@ function Shell({ children }) {
         </header>
         <main className="workspace-main">{children}</main>
       </div>
+
+      {confirmOut && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => !signingOut && setConfirmOut(false)}
+        >
+          <div
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="signout-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="modal-kicker">Session</p>
+            <h2 id="signout-modal-title">Sign out of CommitFlow?</h2>
+            <p className="modal-copy">
+              You’ll need to sign in again to sync or update integrations on this browser.
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={signingOut}
+                onClick={() => setConfirmOut(false)}
+              >
+                Stay signed in
+              </button>
+              <button
+                type="button"
+                className="btn-accent"
+                disabled={signingOut}
+                onClick={confirmSignOut}
+              >
+                {signingOut ? "Signing out…" : "Sign out"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

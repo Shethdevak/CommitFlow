@@ -1,5 +1,23 @@
 from typing import Optional
-from pydantic import BaseModel, EmailStr, Field
+import re
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+PASSWORD_RULE = (
+    "Password must be at least 8 characters and include 1 uppercase letter, "
+    "1 number, and 1 special character"
+)
+
+
+def validate_strong_password(password: str) -> str:
+    if len(password) < 8:
+        raise ValueError(PASSWORD_RULE)
+    if not re.search(r"[A-Z]", password):
+        raise ValueError(PASSWORD_RULE)
+    if not re.search(r"[0-9]", password):
+        raise ValueError(PASSWORD_RULE)
+    if not re.search(r"[^A-Za-z0-9]", password):
+        raise ValueError(PASSWORD_RULE)
+    return password
 
 
 class RegisterRequest(BaseModel):
@@ -7,6 +25,10 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=8)
     display_name: Optional[str] = None
 
+    @field_validator("password")
+    @classmethod
+    def password_must_be_strong(cls, value: str) -> str:
+        return validate_strong_password(value)
 
 class LoginRequest(BaseModel):
     email: EmailStr
