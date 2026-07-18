@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
+import SecretField from "../components/SecretField.jsx";
 
 const PASSWORD_RULE =
   "Password must be at least 8 characters and include 1 uppercase letter, 1 number, and 1 special character";
@@ -111,30 +112,24 @@ export default function LoginPage() {
               autoComplete="email"
             />
           </label>
-          <label className="field">
-            <span>Password</span>
-            <input
-              type="password"
-              required
-              minLength={8}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete={mode === "login" ? "current-password" : "new-password"}
-            />
-          </label>
+          <SecretField
+            label="Password"
+            value={password}
+            required
+            minLength={8}
+            autoComplete={mode === "login" ? "current-password" : "new-password"}
+            onChange={(e) => setPassword(e.target.value)}
+          />
           {mode === "register" && (
             <>
-              <label className="field">
-                <span>Confirm password</span>
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  autoComplete="new-password"
-                />
-              </label>
+              <SecretField
+                label="Confirm password"
+                value={confirmPassword}
+                required
+                minLength={8}
+                autoComplete="new-password"
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
               <p className="fineprint">
                 Use at least 8 characters with 1 uppercase letter, 1 number, and 1 special character.
               </p>

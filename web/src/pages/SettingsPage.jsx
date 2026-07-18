@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import SecretField from "../components/SecretField.jsx";
 
 const SECTIONS = [
   {
@@ -63,6 +64,35 @@ const SECRET_KEYS = [
   "openrouter_api_key",
 ];
 
+const HAS_KEY = {
+  github_token: "has_github_token",
+  gitlab_token: "has_gitlab_token",
+  redmine_api_key: "has_redmine_api_key",
+  groq_api_key: "has_groq_api_key",
+  openai_api_key: "has_openai_api_key",
+};
+
+function isMaskedSecret(value) {
+  if (!value) return false;
+  const s = String(value);
+  return s.includes("…") || s.includes("...") || s === "********";
+}
+
+function secretIsSaved(form, key) {
+  const flag = HAS_KEY[key];
+  if (flag && form[flag]) return true;
+  return Boolean(form[key] && isMaskedSecret(form[key]));
+}
+
+function normalizeSettings(data) {
+  const next = { ...data };
+  for (const key of SECRET_KEYS) {
+    // Keep masked preview from API so the user can see what's stored
+    if (next[key] == null) next[key] = "";
+  }
+  return next;
+}
+
 export default function SettingsPage() {
   const [form, setForm] = useState({});
   const [msg, setMsg] = useState("");
@@ -71,16 +101,19 @@ export default function SettingsPage() {
 
   useEffect(() => {
     api("/api/settings")
-      .then((data) => {
-        const next = { ...data };
-        for (const key of SECRET_KEYS) next[key] = "";
-        setForm(next);
-      })
+      .then((data) => setForm(normalizeSettings(data)))
       .catch((e) => setError(e.message));
   }, []);
 
   function setField(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  function onSecretFocus(key) {
+    setForm((f) => {
+      if (!isMaskedSecret(f[key])) return f;
+      return { ...f, [key]: "" };
+    });
   }
 
   async function onSave(e) {
@@ -91,8 +124,18 @@ export default function SettingsPage() {
     try {
       const body = { ...form };
       for (const key of SECRET_KEYS) {
-        if (!body[key] || !String(body[key]).trim()) delete body[key];
+        const value = body[key];
+        // Don't overwrite stored secrets with empty or masked placeholders
+        if (!value || !String(value).trim() || isMaskedSecret(value)) {
+          delete body[key];
+        }
       }
+      delete body.has_github_token;
+      delete body.has_gitlab_token;
+      delete body.has_redmine_api_key;
+      delete body.has_groq_api_key;
+      delete body.has_openai_api_key;
+
       if (body.daily_hour_goal != null) body.daily_hour_goal = Number(body.daily_hour_goal);
       if (body.min_todos != null) body.min_todos = Number(body.min_todos);
       if (body.project_match_threshold != null) {
@@ -100,9 +143,7 @@ export default function SettingsPage() {
       }
       const saved = await api("/api/settings", { method: "PUT", body });
       setMsg("Integrations saved.");
-      const next = { ...saved };
-      for (const key of SECRET_KEYS) next[key] = "";
-      setForm(next);
+      setForm(normalizeSettings(saved));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -110,12 +151,38 @@ export default function SettingsPage() {
     }
   }
 
+  const checklist = [
+    ["GitHub token", secretIsSaved(form, "github_token")],
+    ["GitLab token", secretIsSaved(form, "gitlab_token")],
+    ["Redmine URL", Boolean(form.redmine_url)],
+    ["Redmine API key", secretIsSaved(form, "redmine_api_key")],
+    ["Groq API key", secretIsSaved(form, "groq_api_key")],
+  ];
+
   return (
     <div className="page-block reveal">
       <header className="page-intro">
         <h1>Integrations</h1>
         <p>Same knobs as your CLI `.env` — scoped to your account, encrypted at rest.</p>
       </header>
+
+      <div className="settings-status">
+        <p className="settings-status-title">Stored credentials</p>
+        <ul className="settings-status-list">
+          {checklist.map(([label, ok]) => (
+            <li key={label} className={ok ? "is-ok" : "is-missing"}>
+              <span className="status-dot" aria-hidden="true" />
+              <span>
+                {label}: <strong>{ok ? "saved" : "not set"}</strong>
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="fineprint">
+          Secrets show a masked preview (first/last characters). Focus a field to replace it. Full
+          keys are never shown again after save.
+        </p>
+      </div>
 
       <form className="settings-form" onSubmit={onSave}>
         {SECTIONS.map((section) => (
@@ -125,21 +192,44 @@ export default function SettingsPage() {
               <p>{section.blurb}</p>
             </div>
             <div className="section-fields">
-              {section.fields.map(([key, label, type, placeholder]) => (
-                <label key={key} className="field">
-                  <span>{label}</span>
-                  <input
-                    type={type}
-                    value={form[key] ?? ""}
-                    placeholder={
-                      type === "password" && form[`has_${key}`]
-                        ? "Saved — leave blank to keep"
-                        : placeholder
-                    }
-                    onChange={(e) => setField(key, e.target.value)}
-                  />
-                </label>
-              ))}
+              {section.fields.map(([key, label, type, placeholder]) => {
+                const isSecret = type === "password";
+                const saved = isSecret && secretIsSaved(form, key);
+                if (isSecret) {
+                  return (
+                    <SecretField
+                      key={key}
+                      label={label}
+                      value={form[key] ?? ""}
+                      placeholder={saved ? "Saved — focus to replace" : placeholder}
+                      defaultVisible={isMaskedSecret(form[key])}
+                      badge={
+                        <span className={`secret-badge ${saved ? "saved" : "missing"}`}>
+                          {saved ? "Saved in account" : "Not set"}
+                        </span>
+                      }
+                      hint={
+                        saved && isMaskedSecret(form[key])
+                          ? `Stored value: ${form[key]}`
+                          : undefined
+                      }
+                      onFocus={() => onSecretFocus(key)}
+                      onChange={(e) => setField(key, e.target.value)}
+                    />
+                  );
+                }
+                return (
+                  <label key={key} className="field">
+                    <span>{label}</span>
+                    <input
+                      type={type}
+                      value={form[key] ?? ""}
+                      placeholder={placeholder}
+                      onChange={(e) => setField(key, e.target.value)}
+                    />
+                  </label>
+                );
+              })}
             </div>
           </section>
         ))}
@@ -156,7 +246,9 @@ export default function SettingsPage() {
                 rows={9}
                 value={form.mappings_yaml || ""}
                 onChange={(e) => setField("mappings_yaml", e.target.value)}
-                placeholder={"repositories:\n  org/repo:\n    redmine_project: My Project\n    provider: github"}
+                placeholder={
+                  "repositories:\n  org/repo:\n    redmine_project: My Project\n    provider: github"
+                }
               />
             </label>
           </div>

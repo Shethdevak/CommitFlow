@@ -117,6 +117,7 @@ class UserSettingsOut(BaseModel):
     has_gitlab_token: bool = False
     has_redmine_api_key: bool = False
     has_groq_api_key: bool = False
+    has_openai_api_key: bool = False
 
 
 class SyncRequest(BaseModel):

@@ -106,6 +106,7 @@ def settings_to_public(row: Optional[UserSettings]) -> UserSettingsOut:
         has_gitlab_token=bool(gl),
         has_redmine_api_key=bool(rm),
         has_groq_api_key=bool(groq),
+        has_openai_api_key=bool(oai),
     )
 
 
