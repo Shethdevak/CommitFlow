@@ -17,10 +17,13 @@ class ApiSettings(BaseSettings):
     # App
     api_secret_key: str = Field("change-me-in-production-use-long-random-string", validation_alias="API_SECRET_KEY")
     api_fernet_key: Optional[str] = Field(None, validation_alias="API_FERNET_KEY")
-    api_cors_origins: str = Field("http://localhost:5173,http://127.0.0.1:5173", validation_alias="API_CORS_ORIGINS")
+    api_cors_origins: str = Field(
+        "https://commit-flow-two.vercel.app,http://localhost:5173,http://127.0.0.1:5173",
+        validation_alias="API_CORS_ORIGINS",
+    )
     api_database_url: str = Field("sqlite:///./data/commitflow_web.db", validation_alias="API_DATABASE_URL")
     api_user_data_dir: str = Field("data/users", validation_alias="API_USER_DATA_DIR")
-    api_frontend_url: str = Field("http://localhost:5173", validation_alias="API_FRONTEND_URL")
+    api_frontend_url: str = Field("https://commit-flow-two.vercel.app", validation_alias="API_FRONTEND_URL")
     api_public_url: str = Field("http://localhost:8000", validation_alias="API_PUBLIC_URL")
     jwt_expire_hours: int = Field(12, validation_alias="JWT_EXPIRE_HOURS")
     jwt_remember_hours: int = Field(720, validation_alias="JWT_REMEMBER_HOURS")  # 30 days

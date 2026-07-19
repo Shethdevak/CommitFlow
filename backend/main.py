@@ -30,15 +30,40 @@ def on_startup():
     else:
         os.makedirs("data", exist_ok=True)
         os.makedirs(cfg.api_user_data_dir, exist_ok=True)
-    init_api_db()
+    try:
+        init_api_db()
+    except Exception:
+        # Allow process to start; failing routes return DB errors instead of a silent boot crash
+        import traceback
+
+        traceback.print_exc()
 
 
-cfg = get_api_settings()
-origins = [o.strip() for o in cfg.api_cors_origins.split(",") if o.strip()]
+def _cors_origins() -> list[str]:
+    """Merge env list + frontend URL + known local/prod fronts (credentials require exact origins)."""
+    cfg = get_api_settings()
+    origins: list[str] = []
+    for part in (cfg.api_cors_origins or "").split(","):
+        o = part.strip().rstrip("/")
+        if o and o not in origins:
+            origins.append(o)
+    frontend = (cfg.api_frontend_url or "").strip().rstrip("/")
+    if frontend and frontend not in origins:
+        origins.append(frontend)
+    for extra in (
+        "https://commit-flow-two.vercel.app",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ):
+        if extra not in origins:
+            origins.append(extra)
+    return origins
+
+
 # Credentials (HttpOnly cookies) require explicit origins — never "*".
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins or ["http://localhost:5173"],
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
