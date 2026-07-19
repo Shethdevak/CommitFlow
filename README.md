@@ -60,6 +60,24 @@ Optional Docker:
 docker compose up --build
 ```
 
+### Deploy API on Railway (Gmail SMTP)
+
+Render blocks outbound Gmail SMTP. Host the API on **Railway** so your Gmail App Password works.
+
+1. Push this repo to GitHub (if not already).
+2. [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub** → select CommitFlow.
+3. Railway will use `Dockerfile.api` via `railway.toml`.
+4. Open the service → **Variables** → paste values from `railway.env.example` (use your real secrets).
+   - Reuse the same **Render Postgres External URL** as `API_DATABASE_URL` so existing users stay.
+   - Set `EMAIL_PROVIDER=smtp` + Gmail `SMTP_USER` / `SMTP_PASSWORD` (App Password).
+5. Generate a public domain (Railway → Settings → Networking → Generate Domain).
+6. Set `API_PUBLIC_URL` to that HTTPS URL (e.g. `https://….up.railway.app`).
+7. On **Vercel** (frontend): set `VITE_API_URL` to the Railway URL → redeploy.
+8. Smoke-test: `GET https://YOUR-RAILWAY-URL/api/health` then try Forgot password.
+9. Stop/delete the old Render **Web Service** (keep Postgres if you still use that URL).
+
+Frontend stays on Vercel. Only the API moves.
+
 ---
 
 ## Architecture Overview

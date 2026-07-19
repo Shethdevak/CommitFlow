@@ -25,7 +25,11 @@ class ApiSettings(BaseSettings):
     jwt_expire_hours: int = Field(12, validation_alias="JWT_EXPIRE_HOURS")
     jwt_remember_hours: int = Field(720, validation_alias="JWT_REMEMBER_HOURS")  # 30 days
 
-    # Email / OTP (Gmail SMTP or any SMTP server)
+    # Email / OTP — Gmail App Password via SMTP (local) or mail bridge (Render)
+    email_provider: str = Field("auto", validation_alias="EMAIL_PROVIDER")  # auto | smtp | bridge | resend
+    mail_bridge_url: Optional[str] = Field(None, validation_alias="MAIL_BRIDGE_URL")
+    mail_bridge_secret: Optional[str] = Field(None, validation_alias="MAIL_BRIDGE_SECRET")
+    resend_api_key: Optional[str] = Field(None, validation_alias="RESEND_API_KEY")
     smtp_host: str = Field("smtp.gmail.com", validation_alias="SMTP_HOST")
     smtp_port: int = Field(587, validation_alias="SMTP_PORT")
     smtp_user: Optional[str] = Field(None, validation_alias="SMTP_USER")
