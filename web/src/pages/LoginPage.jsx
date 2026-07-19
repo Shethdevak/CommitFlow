@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
+import { normalizeApiBase } from "../api.js";
 import SecretField from "../components/SecretField.jsx";
 
 const PASSWORD_RULE =
@@ -31,7 +32,7 @@ export default function LoginPage() {
 
   if (isAuthenticated) return <Navigate to="/" replace />;
 
-  const apiBase = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const apiBase = normalizeApiBase(import.meta.env.VITE_API_URL);
   const githubLoginUrl = `${apiBase}/api/auth/github/login`;
 
   function switchMode(next) {

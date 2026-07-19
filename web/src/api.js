@@ -1,4 +1,16 @@
-const API_BASE = import.meta.env.VITE_API_URL || "";
+function normalizeApiBase(raw) {
+  const value = (raw || "").trim().replace(/\/$/, "");
+  if (!value) return "";
+  // Host without scheme becomes a relative path on the frontend — fix it.
+  if (!/^https?:\/\//i.test(value)) {
+    return `https://${value}`;
+  }
+  return value;
+}
+
+export { normalizeApiBase };
+
+const API_BASE = normalizeApiBase(import.meta.env.VITE_API_URL);
 
 export async function api(path, { method = "GET", body } = {}) {
   const headers = { "Content-Type": "application/json" };
