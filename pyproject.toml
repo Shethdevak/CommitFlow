@@ -44,9 +44,9 @@ commitflow = "app.cli:app"
 [tool.setuptools.packages.find]
 include = ["app*", "api*"]
 
-# Vercel native FastAPI entry (overrides Vite/other presets when buildCommand is null)
+# Vercel native FastAPI — root main.py (avoids conflict with api/ package vs /api functions)
 [tool.vercel]
-entrypoint = "api.main:app"
+entrypoint = "main:app"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

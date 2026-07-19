@@ -80,13 +80,15 @@ Frontend stays on Vercel. Only the API moves.
 
 ### Deploy API on Vercel (experimental)
 
-Native FastAPI on Vercel (`api.main:app` via `pyproject.toml` `[tool.vercel]`).
+Root `main.py` exports the FastAPI `app` (avoids Vercel treating the `api/`
+**package** as serverless file routes). Config: `[tool.vercel] entrypoint = "main:app"`.
 
 1. Backend Vercel project → **Settings → Build & Development**:
-   - Framework: Other (or leave; `vercel.json` sets `"framework": null`)
-   - Build Command: **clear** + turn **Override off** (must not be `vite build`)
+   - Framework: Other / auto (do **not** use Vite)
+   - Build Command: empty, Override **off** (never `vite build` / `npm run build`)
+   - Install Command: `pip install -r requirements.txt`
    - Root Directory: repo root (**not** `web/`)
-2. **Deployments → … → Redeploy → clear cache**
+2. **Clear cache and redeploy**
 3. Env vars from `vercel.env.example`
 4. Check `https://YOUR-API.vercel.app/api/health`
 5. Frontend: `VITE_API_URL=https://YOUR-API.vercel.app` → redeploy
