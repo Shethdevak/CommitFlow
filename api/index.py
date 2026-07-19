@@ -1,4 +1,4 @@
-"""Vercel serverless entry (api/index.py → hosts all routes via vercel.json routes)."""
+"""Vercel serverless entry — must expose top-level ``app`` and/or ``handler``."""
 
 from __future__ import annotations
 
@@ -14,40 +14,15 @@ if _ROOT not in sys.path:
 os.makedirs("/tmp/commitflow-data/users", exist_ok=True)
 os.environ.setdefault("API_USER_DATA_DIR", "/tmp/commitflow-data/users")
 
+from backend.main import app  # noqa: E402  — required top-level ASGI `app`
+from backend.db.session import init_api_db  # noqa: E402
+
 try:
-    from backend.main import app
-    from backend.db.session import init_api_db
-
-    try:
-        init_api_db()
-    except Exception:
-        # Don't prevent cold start — /api/health can still respond; DB routes will error clearly
-        traceback.print_exc()
-
-    try:
-        from mangum import Mangum
-
-        handler = Mangum(app, lifespan="off")
-    except Exception:
-        traceback.print_exc()
-        handler = None
+    init_api_db()
 except Exception:
     traceback.print_exc()
-    from fastapi import FastAPI
 
-    app = FastAPI(title="CommitFlow API boot-error")
+from mangum import Mangum  # noqa: E402
 
-    @app.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-    def _boot_error(full_path: str = ""):
-        return {
-            "status": "error",
-            "detail": "API failed to start. Check Vercel function logs.",
-            "path": full_path,
-        }
-
-    try:
-        from mangum import Mangum
-
-        handler = Mangum(app, lifespan="off")
-    except Exception:
-        handler = None
+# Required top-level Lambda-style `handler` for older Vercel Python adapters
+handler = Mangum(app, lifespan="off")
