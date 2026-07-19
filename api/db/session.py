@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.orm import sessionmaker, Session
 from api.config import get_api_settings
 from api.db.models import Base
@@ -17,6 +17,30 @@ def _normalize_database_url(url: str) -> str:
     return url
 
 
+def _ensure_email_verified_column(engine) -> None:
+    """Add users.email_verified for existing DBs; existing rows default to verified."""
+    insp = inspect(engine)
+    if "users" not in insp.get_table_names():
+        return
+    cols = {c["name"] for c in insp.get_columns("users")}
+    if "email_verified" in cols:
+        return
+    dialect = engine.dialect.name
+    with engine.begin() as conn:
+        if dialect == "postgresql":
+            conn.execute(
+                text(
+                    "ALTER TABLE users ADD COLUMN email_verified BOOLEAN NOT NULL DEFAULT TRUE"
+                )
+            )
+        else:
+            conn.execute(
+                text(
+                    "ALTER TABLE users ADD COLUMN email_verified BOOLEAN NOT NULL DEFAULT 1"
+                )
+            )
+
+
 def init_api_db() -> None:
     global _engine, _SessionLocal
     settings = get_api_settings()
@@ -25,6 +49,7 @@ def init_api_db() -> None:
     _engine = create_engine(url, connect_args=connect_args)
     _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
     Base.metadata.create_all(bind=_engine)
+    _ensure_email_verified_column(_engine)
 
 
 def get_db():

@@ -41,11 +41,37 @@ export function AuthProvider({ children }) {
         setUser(data.user);
       },
       async register(email, password, display_name, remember_me = false) {
-        const data = await api("/api/auth/register", {
+        // No session until email is verified — returns verification meta
+        return api("/api/auth/register", {
           method: "POST",
           body: { email, password, display_name, remember_me },
         });
+      },
+      async verifyEmail(email, code, remember_me = false) {
+        const data = await api("/api/auth/otp/verify", {
+          method: "POST",
+          body: { email, code, purpose: "signup", remember_me },
+        });
         setUser(data.user);
+        return data;
+      },
+      async resendSignupOtp(email) {
+        return api("/api/auth/otp/send", {
+          method: "POST",
+          body: { email, purpose: "signup" },
+        });
+      },
+      async forgotPassword(email) {
+        return api("/api/auth/password/forgot", {
+          method: "POST",
+          body: { email },
+        });
+      },
+      async resetPassword(email, code, password) {
+        return api("/api/auth/password/reset", {
+          method: "POST",
+          body: { email, code, password },
+        });
       },
       async refreshUser() {
         setLoading(true);

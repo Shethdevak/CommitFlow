@@ -6,17 +6,29 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from api.db.session import get_db
 from api.db.models import User, UserSettings
-from api.schemas import RegisterRequest, LoginRequest, AuthResponse, UserOut
+from api.schemas import (
+    RegisterRequest,
+    LoginRequest,
+    AuthResponse,
+    UserOut,
+    RegisterPendingResponse,
+    OtpSendRequest,
+    OtpVerifyRequest,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+    OtpMetaResponse,
+)
 from api.auth.tokens import hash_password, verify_password, create_access_token
 from api.auth.deps import get_current_user
 from api.auth.cookies import set_auth_cookie, clear_auth_cookie
 from api.config import get_api_settings
+from api.services.otp import create_and_send_otp, verify_otp
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=AuthResponse)
-def register(body: RegisterRequest, response: Response, db: Session = Depends(get_db)):
+@router.post("/register", response_model=RegisterPendingResponse)
+def register(body: RegisterRequest, db: Session = Depends(get_db)):
     existing = db.query(User).filter(User.email == body.email.lower()).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -25,10 +37,67 @@ def register(body: RegisterRequest, response: Response, db: Session = Depends(ge
         email=body.email.lower(),
         password_hash=hash_password(body.password),
         display_name=body.display_name or body.email.split("@")[0],
+        email_verified=False,
     )
     db.add(user)
     db.flush()
     db.add(UserSettings(user_id=user.id))
+    db.commit()
+
+    meta = create_and_send_otp(db, email=user.email, purpose="signup")
+    return RegisterPendingResponse(
+        requires_verification=True,
+        email=meta["email"],
+        expires_in_seconds=meta["expires_in_seconds"],
+        resend_after_seconds=meta["resend_after_seconds"],
+    )
+
+
+@router.post("/login", response_model=AuthResponse)
+def login(body: LoginRequest, response: Response, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == body.email.lower()).first()
+    if not user or not user.password_hash or not verify_password(body.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not user.email_verified:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "email_not_verified",
+                "message": "Please verify your email before signing in.",
+                "email": user.email,
+            },
+        )
+    token = create_access_token(user.id, user.email, remember_me=body.remember_me)
+    set_auth_cookie(response, token, remember_me=body.remember_me)
+    return AuthResponse(user=UserOut.model_validate(user))
+
+
+@router.post("/otp/send", response_model=OtpMetaResponse)
+def send_otp(body: OtpSendRequest, db: Session = Depends(get_db)):
+    email_l = body.email.lower()
+    if body.purpose == "signup":
+        user = db.query(User).filter(User.email == email_l).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="No account found for that email.")
+        if user.email_verified:
+            raise HTTPException(status_code=400, detail="Email is already verified. You can sign in.")
+    meta = create_and_send_otp(db, email=email_l, purpose=body.purpose)  # type: ignore[arg-type]
+    return OtpMetaResponse(**meta)
+
+
+@router.post("/otp/verify", response_model=AuthResponse)
+def verify_signup_otp(body: OtpVerifyRequest, response: Response, db: Session = Depends(get_db)):
+    if body.purpose != "signup":
+        raise HTTPException(status_code=400, detail="Use /auth/password/reset for password reset.")
+
+    email_l = body.email.lower()
+    verify_otp(db, email=email_l, purpose="signup", code=body.code)
+
+    user = db.query(User).filter(User.email == email_l).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found.")
+
+    user.email_verified = True
     db.commit()
     db.refresh(user)
 
@@ -37,14 +106,37 @@ def register(body: RegisterRequest, response: Response, db: Session = Depends(ge
     return AuthResponse(user=UserOut.model_validate(user))
 
 
-@router.post("/login", response_model=AuthResponse)
-def login(body: LoginRequest, response: Response, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == body.email.lower()).first()
-    if not user or not user.password_hash or not verify_password(body.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    token = create_access_token(user.id, user.email, remember_me=body.remember_me)
-    set_auth_cookie(response, token, remember_me=body.remember_me)
-    return AuthResponse(user=UserOut.model_validate(user))
+@router.post("/password/forgot", response_model=OtpMetaResponse)
+def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """Always succeeds publicly; only sends mail when the account exists."""
+    email_l = body.email.lower()
+    user = db.query(User).filter(User.email == email_l).first()
+    settings = get_api_settings()
+    if not user or not user.password_hash:
+        # Avoid account enumeration — return the same shape without sending mail
+        return OtpMetaResponse(
+            email=email_l,
+            purpose="reset",
+            expires_in_seconds=int(settings.otp_expire_minutes) * 60,
+            resend_after_seconds=int(settings.otp_resend_cooldown_seconds),
+        )
+    meta = create_and_send_otp(db, email=email_l, purpose="reset")
+    return OtpMetaResponse(**meta)
+
+
+@router.post("/password/reset")
+def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)):
+    email_l = body.email.lower()
+    verify_otp(db, email=email_l, purpose="reset", code=body.code)
+
+    user = db.query(User).filter(User.email == email_l).first()
+    if not user or not user.password_hash:
+        raise HTTPException(status_code=404, detail="Account not found.")
+
+    user.password_hash = hash_password(body.password)
+    user.email_verified = True
+    db.commit()
+    return {"ok": True, "message": "Password updated. You can sign in."}
 
 
 @router.post("/logout")
@@ -129,10 +221,13 @@ def github_callback(code: str, db: Session = Depends(get_db)):
             display_name=profile.get("name") or login_name,
             github_id=github_id,
             github_login=login_name,
+            email_verified=True,
         )
         db.add(user)
         db.flush()
         db.add(UserSettings(user_id=user.id))
+    else:
+        user.email_verified = True
 
     db.commit()
     db.refresh(user)

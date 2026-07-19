@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
+import VerifyEmailPage from "./pages/VerifyEmailPage.jsx";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
 import SyncPage from "./pages/SyncPage.jsx";
 import TodosPage from "./pages/TodosPage.jsx";
@@ -57,7 +59,7 @@ function Shell({ children }) {
             </span>
             Day log
           </NavLink>
-          <NavLink to="/settings" className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}>
+          <NavLink to="/integrations" className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}>
             <span className="nav-ico" aria-hidden="true">
               ◈
             </span>
@@ -148,6 +150,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/verify-email" element={<VerifyEmailPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route
         path="/"
@@ -166,13 +170,14 @@ export default function App() {
         }
       />
       <Route
-        path="/settings"
+        path="/integrations"
         element={
           <Private>
             <SettingsPage />
           </Private>
         }
       />
+      <Route path="/settings" element={<Navigate to="/integrations" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

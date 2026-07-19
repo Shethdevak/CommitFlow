@@ -17,8 +17,25 @@ export async function api(path, { method = "GET", body } = {}) {
   }
   if (!res.ok) {
     const detail = data?.detail;
-    const msg = typeof detail === "string" ? detail : JSON.stringify(detail || data);
-    throw new Error(msg || res.statusText);
+    let msg;
+    let code = null;
+    let email = null;
+    if (typeof detail === "string") {
+      msg = detail;
+    } else if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+      msg = detail.message || detail.detail || JSON.stringify(detail);
+      code = detail.code || null;
+      email = detail.email || null;
+    } else if (Array.isArray(detail)) {
+      msg = detail.map((d) => d.msg || JSON.stringify(d)).join("; ");
+    } else {
+      msg = JSON.stringify(detail || data);
+    }
+    const err = new Error(msg || res.statusText);
+    err.code = code;
+    err.email = email;
+    err.status = res.status;
+    throw err;
   }
   return data;
 }

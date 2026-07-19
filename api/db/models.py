@@ -1,7 +1,7 @@
 """SQLAlchemy models for the web multi-user database."""
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, UniqueConstraint
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -17,9 +17,26 @@ class User(Base):
     github_id = Column(String(64), unique=True, nullable=True, index=True)
     github_login = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
+    email_verified = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     settings = relationship("UserSettings", back_populates="user", uselist=False, cascade="all, delete-orphan")
+
+
+class EmailOtp(Base):
+    """Hashed one-time codes for signup verification and password reset."""
+
+    __tablename__ = "email_otps"
+    __table_args__ = (UniqueConstraint("email", "purpose", name="uq_email_otps_email_purpose"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(255), nullable=False, index=True)
+    purpose = Column(String(32), nullable=False)  # signup | reset
+    code_hash = Column(String(128), nullable=False)
+    attempts = Column(Integer, default=0, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    last_sent_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class UserSettings(Base):

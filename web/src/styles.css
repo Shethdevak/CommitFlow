@@ -203,6 +203,27 @@ button:disabled { opacity: 0.55; cursor: wait; }
 .banner-error { background: #fdeceb; color: var(--danger); }
 .banner-ok { background: #e8f6ec; color: var(--ok); }
 .fineprint { color: var(--muted); font-size: 0.8rem; }
+.login-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.login-meta-row .remember-row.compact { margin: 0; }
+.login-meta-row .remember-row.compact em { display: none; }
+.link-quiet {
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+.link-quiet:hover { color: var(--ink); }
+.otp-input {
+  letter-spacing: 0.28em;
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+}
 .remember-row {
   display: flex;
   gap: 0.65rem;

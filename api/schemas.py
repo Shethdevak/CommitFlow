@@ -43,6 +43,49 @@ class AuthResponse(BaseModel):
     user: "UserOut"
 
 
+class RegisterPendingResponse(BaseModel):
+    """Account created; email verification required before login."""
+
+    requires_verification: bool = True
+    email: EmailStr
+    expires_in_seconds: int
+    resend_after_seconds: int
+
+
+class OtpSendRequest(BaseModel):
+    email: EmailStr
+    purpose: str = Field(..., pattern="^(signup|reset)$")
+
+
+class OtpVerifyRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=4, max_length=8)
+    purpose: str = Field(..., pattern="^(signup|reset)$")
+    remember_me: bool = False
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=4, max_length=8)
+    password: str = Field(min_length=8)
+
+    @field_validator("password")
+    @classmethod
+    def password_must_be_strong(cls, value: str) -> str:
+        return validate_strong_password(value)
+
+
+class OtpMetaResponse(BaseModel):
+    email: EmailStr
+    purpose: str
+    expires_in_seconds: int
+    resend_after_seconds: int
+
+
 class TokenResponse(BaseModel):
     """Deprecated shape kept for compatibility with older clients."""
 
@@ -56,6 +99,7 @@ class UserOut(BaseModel):
     email: Optional[str] = None
     display_name: Optional[str] = None
     github_login: Optional[str] = None
+    email_verified: bool = False
 
     class Config:
         from_attributes = True

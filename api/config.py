@@ -25,6 +25,19 @@ class ApiSettings(BaseSettings):
     jwt_expire_hours: int = Field(12, validation_alias="JWT_EXPIRE_HOURS")
     jwt_remember_hours: int = Field(720, validation_alias="JWT_REMEMBER_HOURS")  # 30 days
 
+    # Email / OTP (Gmail SMTP or any SMTP server)
+    smtp_host: str = Field("smtp.gmail.com", validation_alias="SMTP_HOST")
+    smtp_port: int = Field(587, validation_alias="SMTP_PORT")
+    smtp_user: Optional[str] = Field(None, validation_alias="SMTP_USER")
+    smtp_password: Optional[str] = Field(None, validation_alias="SMTP_PASSWORD")
+    smtp_use_tls: bool = Field(True, validation_alias="SMTP_USE_TLS")
+    smtp_use_ssl: bool = Field(False, validation_alias="SMTP_USE_SSL")
+    email_from: str = Field("CommitFlow <noreply@example.com>", validation_alias="EMAIL_FROM")
+    otp_length: int = Field(6, validation_alias="OTP_LENGTH")
+    otp_expire_minutes: int = Field(10, validation_alias="OTP_EXPIRE_MINUTES")
+    otp_max_attempts: int = Field(5, validation_alias="OTP_MAX_ATTEMPTS")
+    otp_resend_cooldown_seconds: int = Field(60, validation_alias="OTP_RESEND_COOLDOWN_SECONDS")
+
     # GitHub OAuth (login with GitHub — optional)
     github_oauth_client_id: Optional[str] = Field(None, validation_alias="GITHUB_OAUTH_CLIENT_ID")
     github_oauth_client_secret: Optional[str] = Field(None, validation_alias="GITHUB_OAUTH_CLIENT_SECRET")
