@@ -80,20 +80,24 @@ Frontend stays on Vercel. Only the API moves.
 
 ### Deploy API on Vercel (experimental)
 
-Root `main.py` exports the FastAPI `app` (avoids Vercel treating the `api/`
-**package** as serverless file routes). Config: `[tool.vercel] entrypoint = "main:app"`.
+Root `main.py` exports FastAPI `app` (`[tool.vercel] entrypoint = "main:app"`).
+Do **not** put a `functions` key pointing at `main.py` — Vercel only allows
+`functions` patterns under the `api/` folder, which conflicts with our package.
 
-1. Backend Vercel project → **Settings → Build & Development**:
-   - Framework: Other / auto (do **not** use Vite)
-   - Build Command: empty, Override **off** (never `vite build` / `npm run build`)
-   - Install Command: `pip install -r requirements.txt`
-   - Root Directory: repo root (**not** `web/`)
-2. **Clear cache and redeploy**
-3. Env vars from `vercel.env.example`
-4. Check `https://YOUR-API.vercel.app/api/health`
-5. Frontend: `VITE_API_URL=https://YOUR-API.vercel.app` → redeploy
+**Backend project** (`commit-flow-xf22`):
+1. Root Directory = **`.`** (repo root, not `web/`)
+2. Build Command = empty / Override off (never Vite)
+3. Install = `pip install -r requirements.txt`
+4. Env from `vercel.env.example` → clear cache → redeploy
+5. Check `/api/health`
 
-**Note:** Vercel usually blocks Gmail SMTP. OTP may still need a mail bridge or Resend.
+**Frontend project** (`commit-flow-two`):
+1. Root Directory = **`web`**
+2. Framework = Vite
+3. Install = `npm install`, Build = `npm run build`, Output = `dist`
+4. `VITE_API_URL=https://commit-flow-xf22.vercel.app` → redeploy
+
+**Note:** Vercel usually blocks Gmail SMTP.
 
 ---
 

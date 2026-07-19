@@ -2,11 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": null,
   "outputDirectory": null,
-  "installCommand": "pip install -r requirements.txt",
-  "functions": {
-    "main.py": {
-      "maxDuration": 60,
-      "memory": 1024
-    }
-  }
+  "installCommand": "pip install -r requirements.txt"
 }
