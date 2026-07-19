@@ -23,11 +23,10 @@ app = FastAPI(
 @app.on_event("startup")
 def on_startup():
     cfg = get_api_settings()
-    # On Vercel, prefer /tmp (only writable path). Local/Docker keep project data/.
-    data_root = os.environ.get("API_USER_DATA_DIR", "data/users")
-    if data_root.startswith("/tmp") or os.environ.get("VERCEL"):
-        os.makedirs("/tmp/commitflow-data", exist_ok=True)
-        os.makedirs(data_root, exist_ok=True)
+    # Vercel only allows writes under /tmp
+    if os.environ.get("VERCEL"):
+        os.environ.setdefault("API_USER_DATA_DIR", "/tmp/commitflow-data/users")
+        os.makedirs("/tmp/commitflow-data/users", exist_ok=True)
     else:
         os.makedirs("data", exist_ok=True)
         os.makedirs(cfg.api_user_data_dir, exist_ok=True)

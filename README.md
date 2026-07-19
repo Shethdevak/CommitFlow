@@ -80,16 +80,18 @@ Frontend stays on Vercel. Only the API moves.
 
 ### Deploy API on Vercel (experimental)
 
-The repo root has `vercel.json` + `vercel_handler.py` (Mangum) for a separate
-Vercel **backend** project (e.g. `commit-flow-xf22.vercel.app`).
+Native FastAPI on Vercel (`api.main:app` via `pyproject.toml` `[tool.vercel]`).
 
-1. Vercel project → Root Directory = **repo root** (not `web/`).
-2. Add env vars from `vercel.env.example`.
-3. Redeploy, then check `https://YOUR-API.vercel.app/api/health`.
-4. Frontend project: set `VITE_API_URL` to that API URL → redeploy.
+1. Backend Vercel project → **Settings → Build & Development**:
+   - Framework: Other (or leave; `vercel.json` sets `"framework": null`)
+   - Build Command: **clear** + turn **Override off** (must not be `vite build`)
+   - Root Directory: repo root (**not** `web/`)
+2. **Deployments → … → Redeploy → clear cache**
+3. Env vars from `vercel.env.example`
+4. Check `https://YOUR-API.vercel.app/api/health`
+5. Frontend: `VITE_API_URL=https://YOUR-API.vercel.app` → redeploy
 
-**Note:** Vercel usually blocks Gmail SMTP. OTP email may still need a mail bridge
-or Resend even after the API is healthy.
+**Note:** Vercel usually blocks Gmail SMTP. OTP may still need a mail bridge or Resend.
 
 ---
 

@@ -1,17 +1,13 @@
 {
-  "version": 2,
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": null,
+  "outputDirectory": null,
   "installCommand": "pip install -r requirements.txt",
-  "buildCommand": "",
-  "builds": [
-    {
-      "src": "vercel_handler.py",
-      "use": "@vercel/python"
+  "functions": {
+    "api/main.py": {
+      "maxDuration": 60,
+      "memory": 1024
     }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "vercel_handler.py"
-    }
-  ]
+  }
 }
