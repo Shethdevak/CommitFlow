@@ -93,9 +93,9 @@ Do **not** put a `functions` key pointing at `main.py` — Vercel only allows
 
 **Frontend project** (`commit-flow-two`):
 1. Root Directory = **`web`**
-2. Framework = Vite
-3. Install = `npm install`, Build = `npm run build`, Output = `dist`
-4. `VITE_API_URL=https://commit-flow-xf22.vercel.app` → redeploy
+2. Framework = Vite · Install = `npm install` · Build = `npm run build` · Output = `dist`
+3. Do **not** list `web` in repo-root `.vercelignore` (it deleted the frontend before install)
+4. `VITE_API_URL=https://commit-flow-xf22.vercel.app` → clear cache → redeploy
 
 **Note:** Vercel usually blocks Gmail SMTP.
 
