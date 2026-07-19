@@ -1,0 +1,18 @@
+.venv
+venv
+web
+data
+logs
+reports
+.git
+*.db
+*.sqlite
+*.sqlite3
+__pycache__
+.pytest_cache
+commitflow.egg-info
+devsync.egg-info
+Pasted image*.png
+logo*.png
+favicon.png
+tests

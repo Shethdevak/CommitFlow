@@ -78,6 +78,19 @@ Render blocks outbound Gmail SMTP. Host the API on **Railway** so your Gmail App
 
 Frontend stays on Vercel. Only the API moves.
 
+### Deploy API on Vercel (experimental)
+
+The repo root has `vercel.json` + `vercel_handler.py` (Mangum) for a separate
+Vercel **backend** project (e.g. `commit-flow-xf22.vercel.app`).
+
+1. Vercel project → Root Directory = **repo root** (not `web/`).
+2. Add env vars from `vercel.env.example`.
+3. Redeploy, then check `https://YOUR-API.vercel.app/api/health`.
+4. Frontend project: set `VITE_API_URL` to that API URL → redeploy.
+
+**Note:** Vercel usually blocks Gmail SMTP. OTP email may still need a mail bridge
+or Resend even after the API is healthy.
+
 ---
 
 ## Architecture Overview

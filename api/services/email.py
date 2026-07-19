@@ -1,8 +1,8 @@
-"""Outbound email — Gmail SMTP (local) or HTTPS mail bridge (Render → Gmail).
+"""Outbound email — Gmail SMTP or HTTPS mail bridge.
 
-Render blocks outbound SMTP to smtp.gmail.com. To keep using a Gmail App Password
-in production, deploy tools/gmail_mail_bridge on a host that allows SMTP
-(Railway / Fly / any VPS), then point the Render API at it with MAIL_BRIDGE_*.
+Many PaaS hosts (Render, Railway, etc.) block/time out smtp.gmail.com.
+To keep a Gmail App Password in production, deploy tools/gmail_mail_bridge on a
+small VPS that allows SMTP, then set EMAIL_PROVIDER=bridge + MAIL_BRIDGE_*.
 """
 
 from __future__ import annotations
@@ -194,10 +194,11 @@ def send_smtp_message(
     raw_message: str,
     use_tls: bool = True,
     use_ssl: bool = False,
+    timeout: int = 20,
 ) -> None:
     password = password.replace(" ", "")
     use_ssl = bool(use_ssl or port == 465)
-    server = _smtp_connect(host, port, use_ssl=use_ssl)
+    server = _smtp_connect(host, port, use_ssl=use_ssl, timeout=timeout)
     try:
         server.ehlo()
         if not use_ssl and use_tls:
@@ -217,8 +218,7 @@ def _send_via_smtp(*, to: str, subject: str, text: str, html: Optional[str]) -> 
     settings = get_api_settings()
     if not settings.smtp_user or not settings.smtp_password:
         raise RuntimeError(
-            "Set SMTP_USER and SMTP_PASSWORD (Gmail address + App Password). "
-            "On Render this will fail — use MAIL_BRIDGE instead (see tools/gmail_mail_bridge)."
+            "Set SMTP_USER and SMTP_PASSWORD (Gmail address + App Password) on the API host."
         )
 
     from_name, from_addr = _parse_from(settings.email_from)
@@ -234,27 +234,40 @@ def _send_via_smtp(*, to: str, subject: str, text: str, html: Optional[str]) -> 
         text=text,
         html=html,
     )
+    raw = msg.as_string()
+    user = settings.smtp_user
+    password = settings.smtp_password
+    host = settings.smtp_host
 
-    try:
-        send_smtp_message(
-            host=settings.smtp_host,
-            port=int(settings.smtp_port),
-            user=settings.smtp_user,
-            password=settings.smtp_password,
-            from_addr=from_addr,
-            to=to,
-            raw_message=msg.as_string(),
-            use_tls=settings.smtp_use_tls,
-            use_ssl=settings.smtp_use_ssl,
-        )
-    except smtplib.SMTPException as e:
-        logger.error("SMTP email failed: {}", e)
-        raise RuntimeError(f"Failed to send email: {e}") from e
-    except OSError as e:
-        logger.error("SMTP connection failed: {}", e)
-        raise RuntimeError(
-            "Cannot reach smtp.gmail.com from this host (Render blocks SMTP). "
-            "Deploy tools/gmail_mail_bridge with your Gmail App Password, then set "
-            "EMAIL_PROVIDER=bridge, MAIL_BRIDGE_URL, and MAIL_BRIDGE_SECRET on Render. "
-            f"({e})"
-        ) from e
+    # Prefer configured port; fall back to the other Gmail port on connect failure.
+    primary = (int(settings.smtp_port), bool(settings.smtp_use_ssl or int(settings.smtp_port) == 465), settings.smtp_use_tls)
+    fallback = (465, True, False) if primary[0] != 465 else (587, False, True)
+    attempts = [primary, fallback]
+    last_err: Optional[Exception] = None
+
+    for port, use_ssl, use_tls in attempts:
+        try:
+            send_smtp_message(
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                from_addr=from_addr,
+                to=to,
+                raw_message=raw,
+                use_tls=use_tls,
+                use_ssl=use_ssl,
+            )
+            return
+        except (smtplib.SMTPException, OSError, TimeoutError) as e:
+            last_err = e
+            logger.warning("SMTP via {}:{} failed: {}", host, port, e)
+
+    logger.error("SMTP connection failed after retries: {}", last_err)
+    raise RuntimeError(
+        "Cannot reach Gmail SMTP from this server (timed out / blocked). "
+        "Render and Railway both block smtp.gmail.com. "
+        "Keep using your Gmail App Password via tools/gmail_mail_bridge on a small VPS, "
+        "then set EMAIL_PROVIDER=bridge, MAIL_BRIDGE_URL, and MAIL_BRIDGE_SECRET on the API. "
+        f"({last_err})"
+    ) from last_err
