@@ -6,12 +6,12 @@ This package is additive — the existing CLI (`python -m app.cli`) is unchanged
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.config import get_api_settings
-from api.db.session import init_api_db
-from api.routers import auth as auth_router
-from api.routers import settings as settings_router
-from api.routers import sync as sync_router
-from api.routers import redmine as redmine_router
+from backend.config import get_api_settings
+from backend.db.session import init_api_db
+from backend.routers import auth as auth_router
+from backend.routers import settings as settings_router
+from backend.routers import sync as sync_router
+from backend.routers import redmine as redmine_router
 
 app = FastAPI(
     title="CommitFlow API",

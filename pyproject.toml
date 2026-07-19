@@ -42,11 +42,11 @@ dependencies = [
 commitflow = "app.cli:app"
 
 [tool.setuptools.packages.find]
-include = ["app*", "api*"]
+include = ["app*", "backend*"]
 
-# Vercel native FastAPI — root main.py (avoids conflict with api/ package vs /api functions)
+# Vercel / local entry
 [tool.vercel]
-entrypoint = "main:app"
+entrypoint = "backend.main:app"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

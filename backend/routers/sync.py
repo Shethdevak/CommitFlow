@@ -2,12 +2,12 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from api.db.session import get_db
-from api.db.models import User, UserSettings
-from api.auth.deps import get_current_user
-from api.config import get_api_settings
-from api.schemas import SyncRequest, SyncResultOut, PlannedTodoOut, CommitPlannedRequest
-from api.services.user_settings import build_settings_mapping, ensure_user_paths
+from backend.db.session import get_db
+from backend.db.models import User, UserSettings
+from backend.auth.deps import get_current_user
+from backend.config import get_api_settings
+from backend.schemas import SyncRequest, SyncResultOut, PlannedTodoOut, CommitPlannedRequest
+from backend.services.user_settings import build_settings_mapping, ensure_user_paths
 from app.config.settings import Settings
 from app.models.domain import WorkTodo, SyncResult
 from app.services.factory import build_sync_service

@@ -46,7 +46,7 @@ Your local CLI + `.env` keep working independently.
 .venv/bin/pip install -e .
 
 # Terminal A — API
-.venv/bin/uvicorn api.main:app --reload --port 8000
+.venv/bin/uvicorn backend.main:app --reload --port 8000
 
 # Terminal B — frontend
 cd web && npm install && npm run dev
@@ -80,24 +80,23 @@ Frontend stays on Vercel. Only the API moves.
 
 ### Deploy API on Vercel (experimental)
 
-Root `main.py` exports FastAPI `app` (`[tool.vercel] entrypoint = "main:app"`).
-Do **not** put a `functions` key pointing at `main.py` — Vercel only allows
-`functions` patterns under the `api/` folder, which conflicts with our package.
+The FastAPI package lives in **`backend/`**. Vercel’s special **`api/`** folder only
+contains `api/index.py` (Mangum wrapper) so HTTP routes like `/api/auth/me` work.
 
 **Backend project** (`commit-flow-xf22`):
 1. Root Directory = **`.`** (repo root, not `web/`)
 2. Build Command = empty / Override off (never Vite)
 3. Install = `pip install -r requirements.txt`
-4. Env from `vercel.env.example` → clear cache → redeploy
-5. Check `/api/health`
+4. Env from `vercel.env.example` (set `API_CORS_ORIGINS` to your frontend URL)
+5. Clear cache → redeploy → check `https://commit-flow-xf22.vercel.app/api/health`
 
 **Frontend project** (`commit-flow-two`):
 1. Root Directory = **`web`**
 2. Framework = Vite · Install = `npm install` · Build = `npm run build` · Output = `dist`
-3. Do **not** list `web` in repo-root `.vercelignore` (it deleted the frontend before install)
-4. `VITE_API_URL=https://commit-flow-xf22.vercel.app` → clear cache → redeploy
+3. `VITE_API_URL=https://commit-flow-xf22.vercel.app` (must include `https://`)
+4. Clear cache → redeploy
 
-**Note:** Vercel usually blocks Gmail SMTP.
+**Note:** Vercel usually blocks Gmail SMTP — use Railway for mail, or a mail bridge.
 
 ---
 

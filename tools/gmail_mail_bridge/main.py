@@ -30,7 +30,7 @@ from typing import Optional
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, EmailStr, Field
 
-from api.services.email import build_mime_message, send_smtp_message
+from backend.services.email import build_mime_message, send_smtp_message
 
 app = FastAPI(title="CommitFlow Gmail mail bridge", docs_url=None, redoc_url=None)
 

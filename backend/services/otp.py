@@ -10,9 +10,9 @@ from typing import Literal
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from api.config import get_api_settings
-from api.db.models import EmailOtp
-from api.services.email import send_email
+from backend.config import get_api_settings
+from backend.db.models import EmailOtp
+from backend.services.email import send_email
 
 Purpose = Literal["signup", "reset"]
 

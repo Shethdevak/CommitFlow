@@ -4,9 +4,9 @@ import requests
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
-from api.db.session import get_db
-from api.db.models import User, UserSettings
-from api.schemas import (
+from backend.db.session import get_db
+from backend.db.models import User, UserSettings
+from backend.schemas import (
     RegisterRequest,
     LoginRequest,
     AuthResponse,
@@ -20,17 +20,17 @@ from api.schemas import (
     ResetPasswordRequest,
     OtpMetaResponse,
 )
-from api.auth.tokens import (
+from backend.auth.tokens import (
     hash_password,
     verify_password,
     create_access_token,
     create_password_reset_token,
     decode_password_reset_token,
 )
-from api.auth.deps import get_current_user
-from api.auth.cookies import set_auth_cookie, clear_auth_cookie
-from api.config import get_api_settings
-from api.services.otp import create_and_send_otp, verify_otp
+from backend.auth.deps import get_current_user
+from backend.auth.cookies import set_auth_cookie, clear_auth_cookie
+from backend.config import get_api_settings
+from backend.services.otp import create_and_send_otp, verify_otp
 from jose import JWTError
 
 router = APIRouter(prefix="/auth", tags=["auth"])

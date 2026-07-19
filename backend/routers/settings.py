@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from api.db.session import get_db
-from api.db.models import User, UserSettings
-from api.auth.deps import get_current_user
-from api.schemas import UserSettingsUpdate, UserSettingsOut
-from api.services.user_settings import apply_settings_update, settings_to_public
+from backend.db.session import get_db
+from backend.db.models import User, UserSettings
+from backend.auth.deps import get_current_user
+from backend.schemas import UserSettingsUpdate, UserSettingsOut
+from backend.services.user_settings import apply_settings_update, settings_to_public
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 

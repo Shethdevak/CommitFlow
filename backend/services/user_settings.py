@@ -2,9 +2,9 @@
 
 import os
 from typing import Any, Dict, Optional
-from api.db.models import UserSettings
-from api.security import encrypt_text, decrypt_text, mask_secret
-from api.schemas import UserSettingsUpdate, UserSettingsOut
+from backend.db.models import UserSettings
+from backend.security import encrypt_text, decrypt_text, mask_secret
+from backend.schemas import UserSettingsUpdate, UserSettingsOut
 
 
 SECRET_FIELDS = {

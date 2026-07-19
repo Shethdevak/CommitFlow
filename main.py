@@ -1,5 +1,5 @@
-"""ASGI entry for Vercel FastAPI runtime (`[tool.vercel] entrypoint = "main:app"`)."""
+"""Local / Railway ASGI entry — re-exports FastAPI app."""
 
-from api.main import app
+from backend.main import app
 
 __all__ = ["app"]

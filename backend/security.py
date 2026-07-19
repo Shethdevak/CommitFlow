@@ -4,7 +4,7 @@ import base64
 import hashlib
 from typing import Optional
 from cryptography.fernet import Fernet, InvalidToken
-from api.config import get_api_settings
+from backend.config import get_api_settings
 
 
 def _fernet() -> Fernet:

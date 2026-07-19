@@ -3,10 +3,10 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy.orm import Session
-from api.db.session import get_db
-from api.db.models import User
-from api.auth.tokens import decode_access_token
-from api.auth.cookies import COOKIE_NAME
+from backend.db.session import get_db
+from backend.db.models import User
+from backend.auth.tokens import decode_access_token
+from backend.auth.cookies import COOKIE_NAME
 
 bearer = HTTPBearer(auto_error=False)
 

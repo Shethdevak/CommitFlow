@@ -1,7 +1,7 @@
 """HttpOnly session cookie helpers for JWT auth."""
 
 from fastapi import Response
-from api.config import get_api_settings
+from backend.config import get_api_settings
 
 COOKIE_NAME = "cf_session"
 

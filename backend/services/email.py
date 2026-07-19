@@ -18,7 +18,7 @@ from typing import Optional
 import requests
 from loguru import logger
 
-from api.config import get_api_settings
+from backend.config import get_api_settings
 
 
 def _parse_from(raw: str) -> tuple[str, str]:

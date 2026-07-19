@@ -1,8 +1,8 @@
 from contextlib import contextmanager
 from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.orm import sessionmaker, Session
-from api.config import get_api_settings
-from api.db.models import Base
+from backend.config import get_api_settings
+from backend.db.models import Base
 
 _engine = None
 _SessionLocal = None
