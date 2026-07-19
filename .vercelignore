@@ -12,7 +12,9 @@ __pycache__
 commitflow.egg-info
 devsync.egg-info
 Pasted image*.png
-logo*.png
-favicon.png
 tests
 tools
+# Keep web/public logos — do NOT ignore logo*.png / favicon (breaks frontend)
+/logo.png
+/logo2.png
+/favicon.png

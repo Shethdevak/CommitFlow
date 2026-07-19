@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
-import { normalizeApiBase } from "../api.js";
 import SecretField from "../components/SecretField.jsx";
 
 const PASSWORD_RULE =
@@ -31,9 +30,6 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
 
   if (isAuthenticated) return <Navigate to="/" replace />;
-
-  const apiBase = normalizeApiBase(import.meta.env.VITE_API_URL);
-  const githubLoginUrl = `${apiBase}/api/auth/github/login`;
 
   function switchMode(next) {
     setMode(next);
@@ -192,14 +188,6 @@ export default function LoginPage() {
             {busy ? "Working…" : mode === "login" ? "Enter CommitFlow" : "Create account"}
           </button>
         </form>
-
-        <div className="or-row">
-          <span>or</span>
-        </div>
-        <a className="btn-secondary wide" href={githubLoginUrl}>
-          Continue with GitHub
-        </a>
-        <p className="fineprint">GitHub login needs OAuth keys on the server. Email always works.</p>
 
         <button
           type="button"
