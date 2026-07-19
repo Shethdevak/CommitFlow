@@ -68,9 +68,18 @@ class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
 
-class ResetPasswordRequest(BaseModel):
+class VerifyResetCodeRequest(BaseModel):
     email: EmailStr
     code: str = Field(min_length=4, max_length=8)
+
+
+class VerifyResetCodeResponse(BaseModel):
+    email: EmailStr
+    reset_token: str
+
+
+class ResetPasswordRequest(BaseModel):
+    reset_token: str
     password: str = Field(min_length=8)
 
     @field_validator("password")

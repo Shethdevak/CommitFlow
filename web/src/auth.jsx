@@ -67,10 +67,16 @@ export function AuthProvider({ children }) {
           body: { email },
         });
       },
-      async resetPassword(email, code, password) {
+      async verifyResetCode(email, code) {
+        return api("/api/auth/password/verify-code", {
+          method: "POST",
+          body: { email, code },
+        });
+      },
+      async resetPassword(reset_token, password) {
         return api("/api/auth/password/reset", {
           method: "POST",
-          body: { email, code, password },
+          body: { reset_token, password },
         });
       },
       async refreshUser() {

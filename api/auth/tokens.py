@@ -29,6 +29,26 @@ def create_access_token(
     return jwt.encode(payload, settings.api_secret_key, algorithm=ALGORITHM)
 
 
+def create_password_reset_token(user_id: int, email: str) -> str:
+    """Short-lived token issued only after a valid reset OTP."""
+    settings = get_api_settings()
+    expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+    payload = {
+        "sub": str(user_id),
+        "email": email,
+        "exp": expire,
+        "purpose": "password_reset",
+    }
+    return jwt.encode(payload, settings.api_secret_key, algorithm=ALGORITHM)
+
+
+def decode_password_reset_token(token: str) -> dict:
+    payload = decode_access_token(token)
+    if payload.get("purpose") != "password_reset":
+        raise JWTError("Invalid reset token")
+    return payload
+
+
 def decode_access_token(token: str) -> dict:
     settings = get_api_settings()
     return jwt.decode(token, settings.api_secret_key, algorithms=[ALGORITHM])

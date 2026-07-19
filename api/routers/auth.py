@@ -15,14 +15,23 @@ from api.schemas import (
     OtpSendRequest,
     OtpVerifyRequest,
     ForgotPasswordRequest,
+    VerifyResetCodeRequest,
+    VerifyResetCodeResponse,
     ResetPasswordRequest,
     OtpMetaResponse,
 )
-from api.auth.tokens import hash_password, verify_password, create_access_token
+from api.auth.tokens import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    create_password_reset_token,
+    decode_password_reset_token,
+)
 from api.auth.deps import get_current_user
 from api.auth.cookies import set_auth_cookie, clear_auth_cookie
 from api.config import get_api_settings
 from api.services.otp import create_and_send_otp, verify_otp
+from jose import JWTError
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -108,30 +117,43 @@ def verify_signup_otp(body: OtpVerifyRequest, response: Response, db: Session = 
 
 @router.post("/password/forgot", response_model=OtpMetaResponse)
 def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)):
-    """Always succeeds publicly; only sends mail when the account exists."""
     email_l = body.email.lower()
     user = db.query(User).filter(User.email == email_l).first()
-    settings = get_api_settings()
     if not user or not user.password_hash:
-        # Avoid account enumeration — return the same shape without sending mail
-        return OtpMetaResponse(
-            email=email_l,
-            purpose="reset",
-            expires_in_seconds=int(settings.otp_expire_minutes) * 60,
-            resend_after_seconds=int(settings.otp_resend_cooldown_seconds),
-        )
+        raise HTTPException(status_code=404, detail="No account found for that email.")
     meta = create_and_send_otp(db, email=email_l, purpose="reset")
     return OtpMetaResponse(**meta)
 
 
-@router.post("/password/reset")
-def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)):
+@router.post("/password/verify-code", response_model=VerifyResetCodeResponse)
+def verify_reset_code(body: VerifyResetCodeRequest, db: Session = Depends(get_db)):
     email_l = body.email.lower()
-    verify_otp(db, email=email_l, purpose="reset", code=body.code)
-
     user = db.query(User).filter(User.email == email_l).first()
     if not user or not user.password_hash:
+        raise HTTPException(status_code=404, detail="No account found for that email.")
+
+    verify_otp(db, email=email_l, purpose="reset", code=body.code)
+    reset_token = create_password_reset_token(user.id, email_l)
+    return VerifyResetCodeResponse(email=email_l, reset_token=reset_token)
+
+
+@router.post("/password/reset")
+def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)):
+    try:
+        payload = decode_password_reset_token(body.reset_token)
+    except JWTError:
+        raise HTTPException(
+            status_code=400,
+            detail="Reset session expired. Request a new code.",
+        ) from None
+
+    user_id = int(payload["sub"])
+    email_l = (payload.get("email") or "").lower()
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user or not user.password_hash:
         raise HTTPException(status_code=404, detail="Account not found.")
+    if user.email and user.email.lower() != email_l:
+        raise HTTPException(status_code=400, detail="Reset session invalid.")
 
     user.password_hash = hash_password(body.password)
     user.email_verified = True
