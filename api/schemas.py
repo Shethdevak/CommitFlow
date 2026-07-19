@@ -24,6 +24,7 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8)
     display_name: Optional[str] = None
+    remember_me: bool = False
 
     @field_validator("password")
     @classmethod
@@ -33,6 +34,7 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    remember_me: bool = False
 
 
 class AuthResponse(BaseModel):

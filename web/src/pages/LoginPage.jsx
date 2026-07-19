@@ -22,6 +22,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -54,8 +55,8 @@ export default function LoginPage() {
 
     setBusy(true);
     try {
-      if (mode === "login") await login(email, password);
-      else await register(email, password, name || undefined);
+      if (mode === "login") await login(email, password, rememberMe);
+      else await register(email, password, name || undefined, rememberMe);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -135,6 +136,17 @@ export default function LoginPage() {
               </p>
             </>
           )}
+          <label className="remember-row">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+            />
+            <span>
+              <strong>Keep me signed in</strong>
+              <em>Stay logged in on this device until you sign out. Leave unchecked to end the session when you close the browser.</em>
+            </span>
+          </label>
           {error && <p className="banner-error">{error}</p>}
           <button type="submit" className="btn-primary wide" disabled={busy}>
             {busy ? "Working…" : mode === "login" ? "Enter CommitFlow" : "Create account"}

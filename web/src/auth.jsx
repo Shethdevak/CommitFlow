@@ -33,14 +33,17 @@ export function AuthProvider({ children }) {
       user,
       loading,
       isAuthenticated: !!user,
-      async login(email, password) {
-        const data = await api("/api/auth/login", { method: "POST", body: { email, password } });
+      async login(email, password, remember_me = false) {
+        const data = await api("/api/auth/login", {
+          method: "POST",
+          body: { email, password, remember_me },
+        });
         setUser(data.user);
       },
-      async register(email, password, display_name) {
+      async register(email, password, display_name, remember_me = false) {
         const data = await api("/api/auth/register", {
           method: "POST",
-          body: { email, password, display_name },
+          body: { email, password, display_name, remember_me },
         });
         setUser(data.user);
       },

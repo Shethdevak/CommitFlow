@@ -32,8 +32,8 @@ def register(body: RegisterRequest, response: Response, db: Session = Depends(ge
     db.commit()
     db.refresh(user)
 
-    token = create_access_token(user.id, user.email)
-    set_auth_cookie(response, token)
+    token = create_access_token(user.id, user.email, remember_me=body.remember_me)
+    set_auth_cookie(response, token, remember_me=body.remember_me)
     return AuthResponse(user=UserOut.model_validate(user))
 
 
@@ -42,8 +42,8 @@ def login(body: LoginRequest, response: Response, db: Session = Depends(get_db))
     user = db.query(User).filter(User.email == body.email.lower()).first()
     if not user or not user.password_hash or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    token = create_access_token(user.id, user.email)
-    set_auth_cookie(response, token)
+    token = create_access_token(user.id, user.email, remember_me=body.remember_me)
+    set_auth_cookie(response, token, remember_me=body.remember_me)
     return AuthResponse(user=UserOut.model_validate(user))
 
 
@@ -136,10 +136,10 @@ def github_callback(code: str, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(user)
-    jwt_token = create_access_token(user.id, user.email)
+    jwt_token = create_access_token(user.id, user.email, remember_me=True)
     dest = f"{settings.api_frontend_url.rstrip('/')}/auth/callback"
     resp = RedirectResponse(dest)
-    set_auth_cookie(resp, jwt_token)
+    set_auth_cookie(resp, jwt_token, remember_me=True)
     return resp
 
 

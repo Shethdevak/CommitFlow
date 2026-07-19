@@ -16,10 +16,16 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-def create_access_token(user_id: int, email: Optional[str] = None) -> str:
+def create_access_token(
+    user_id: int,
+    email: Optional[str] = None,
+    *,
+    remember_me: bool = False,
+) -> str:
     settings = get_api_settings()
-    expire = datetime.now(timezone.utc) + timedelta(hours=settings.jwt_expire_hours)
-    payload = {"sub": str(user_id), "email": email, "exp": expire}
+    hours = settings.jwt_remember_hours if remember_me else settings.jwt_expire_hours
+    expire = datetime.now(timezone.utc) + timedelta(hours=hours)
+    payload = {"sub": str(user_id), "email": email, "exp": expire, "rm": bool(remember_me)}
     return jwt.encode(payload, settings.api_secret_key, algorithm=ALGORITHM)
 
 

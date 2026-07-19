@@ -22,7 +22,8 @@ class ApiSettings(BaseSettings):
     api_user_data_dir: str = Field("data/users", validation_alias="API_USER_DATA_DIR")
     api_frontend_url: str = Field("http://localhost:5173", validation_alias="API_FRONTEND_URL")
     api_public_url: str = Field("http://localhost:8000", validation_alias="API_PUBLIC_URL")
-    jwt_expire_hours: int = Field(72, validation_alias="JWT_EXPIRE_HOURS")
+    jwt_expire_hours: int = Field(12, validation_alias="JWT_EXPIRE_HOURS")
+    jwt_remember_hours: int = Field(720, validation_alias="JWT_REMEMBER_HOURS")  # 30 days
 
     # GitHub OAuth (login with GitHub — optional)
     github_oauth_client_id: Optional[str] = Field(None, validation_alias="GITHUB_OAUTH_CLIENT_ID")
