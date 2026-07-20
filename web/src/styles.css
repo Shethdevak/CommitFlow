@@ -1069,18 +1069,20 @@ button:disabled { opacity: 0.55; cursor: wait; }
   display: grid;
   place-items: center;
   padding: 1.25rem;
-  background: rgba(20, 24, 28, 0.48);
-  backdrop-filter: blur(6px);
+  background: rgba(20, 24, 28, 0.62);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   animation: fadeIn 0.18s ease both;
 }
 .modal-card {
   width: min(440px, 100%);
-  background: var(--panel-solid);
+  background: #fffcf7;
   border: 1px solid var(--line);
   border-radius: 22px;
   padding: 1.4rem 1.45rem 1.25rem;
-  box-shadow: var(--shadow);
+  box-shadow: 0 28px 64px rgba(20, 24, 28, 0.28);
   animation: modalUp 0.22s ease both;
+  isolation: isolate;
 }
 .modal-kicker {
   margin: 0 0 0.35rem;
@@ -1088,7 +1090,7 @@ button:disabled { opacity: 0.55; cursor: wait; }
   letter-spacing: 0.1em;
   font-size: 0.7rem;
   font-weight: 700;
-  color: var(--accent-deep);
+  color: var(--teal);
 }
 .modal-kicker-danger {
   color: var(--danger);

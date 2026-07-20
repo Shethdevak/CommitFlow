@@ -165,8 +165,8 @@ export default function SyncPage() {
     dialog?.type === "delete"
       ? "It will leave your day plan. Hours are not auto-moved — edit another row if you want to reassign time."
       : dialog?.type === "commit-one"
-        ? "Only this to-do will be created/updated in Redmine with the hours shown. Nothing is pushed to Git. Other rows stay in your plan."
-        : "All remaining to-dos in this plan will be written to Redmine with your edited hours. This does not push anything to GitHub or GitLab.";
+        ? "Only this to-do and its hours will be written to Redmine. Other rows stay in your plan."
+        : "All remaining to-dos in this plan will be written to Redmine with your edited hours.";
 
   return (
     <div className="page-block reveal">
