@@ -19,7 +19,7 @@ const SECTIONS = [
     fields: [
       ["github_token", "GITHUB_TOKEN", "password", "ghp_…"],
       ["gitlab_token", "GITLAB_TOKEN", "password", "glpat-…"],
-      ["gitlab_api_url", "GITLAB_API_URL", "text", "https://git.example.com"],
+      ["gitlab_api_url", "GITLAB_API_URL", "password", "https://git.example.com"],
     ],
   },
   {
@@ -27,7 +27,7 @@ const SECTIONS = [
     title: "Redmine",
     blurb: "Where to-dos and spent time land.",
     fields: [
-      ["redmine_url", "REDMINE_URL", "text", "https://redmine.example.com"],
+      ["redmine_url", "REDMINE_URL", "password", "https://redmine.example.com"],
       ["redmine_api_key", "REDMINE_API_KEY", "password", "api key"],
     ],
   },
@@ -193,27 +193,32 @@ export default function SettingsPage() {
             </div>
             <div className="section-fields">
               {section.fields.map(([key, label, type, placeholder]) => {
-                const isSecret = type === "password";
-                const saved = isSecret && secretIsSaved(form, key);
-                if (isSecret) {
+                const isEncryptedSecret = SECRET_KEYS.includes(key);
+                const useEyeToggle = type === "password";
+                const saved = isEncryptedSecret && secretIsSaved(form, key);
+                if (useEyeToggle) {
                   return (
                     <SecretField
                       key={key}
                       label={label}
                       value={form[key] ?? ""}
-                      placeholder={saved ? "Saved — focus to replace" : placeholder}
-                      defaultVisible={isMaskedSecret(form[key])}
+                      placeholder={
+                        isEncryptedSecret && saved ? "Saved — focus to replace" : placeholder
+                      }
+                      defaultVisible={!isEncryptedSecret || isMaskedSecret(form[key])}
                       badge={
-                        <span className={`secret-badge ${saved ? "saved" : "missing"}`}>
-                          {saved ? "Saved in account" : "Not set"}
-                        </span>
+                        isEncryptedSecret ? (
+                          <span className={`secret-badge ${saved ? "saved" : "missing"}`}>
+                            {saved ? "Saved in account" : "Not set"}
+                          </span>
+                        ) : undefined
                       }
                       hint={
-                        saved && isMaskedSecret(form[key])
+                        isEncryptedSecret && saved && isMaskedSecret(form[key])
                           ? `Stored value: ${form[key]}`
                           : undefined
                       }
-                      onFocus={() => onSecretFocus(key)}
+                      onFocus={isEncryptedSecret ? () => onSecretFocus(key) : undefined}
                       onChange={(e) => setField(key, e.target.value)}
                     />
                   );
