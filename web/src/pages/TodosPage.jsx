@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
+import { loadDayLogState, saveDayLogState } from "../dayLogState";
 
 function todayLocal() {
   const d = new Date();
@@ -10,10 +11,15 @@ function todayLocal() {
 }
 
 export default function TodosPage() {
-  const [date, setDate] = useState(todayLocal);
+  const initial = loadDayLogState();
+  const [date, setDate] = useState(() => initial?.date || todayLocal());
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [data, setData] = useState(null);
+  const [error, setError] = useState(() => initial?.error ?? "");
+  const [data, setData] = useState(() => initial?.data ?? null);
+
+  useEffect(() => {
+    saveDayLogState({ date, data, error });
+  }, [date, data, error]);
 
   async function loadDay() {
     setBusy(true);

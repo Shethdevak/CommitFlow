@@ -17,9 +17,9 @@ const SECTIONS = [
     title: "Git sources",
     blurb: "Tokens stay encrypted. Leave blank to keep a saved value.",
     fields: [
-      ["github_token", "GITHUB_TOKEN", "password", "ghp_…"],
-      ["gitlab_token", "GITLAB_TOKEN", "password", "glpat-…"],
-      ["gitlab_api_url", "GITLAB_API_URL", "password", "https://git.example.com"],
+      ["github_token", "GITHUB_TOKEN", "secret", "ghp_…"],
+      ["gitlab_token", "GITLAB_TOKEN", "secret", "glpat-…"],
+      ["gitlab_api_url", "GITLAB_API_URL", "url", "https://git.example.com"],
     ],
   },
   {
@@ -27,8 +27,8 @@ const SECTIONS = [
     title: "Redmine",
     blurb: "Where to-dos and spent time land.",
     fields: [
-      ["redmine_url", "REDMINE_URL", "password", "https://redmine.example.com"],
-      ["redmine_api_key", "REDMINE_API_KEY", "password", "api key"],
+      ["redmine_url", "REDMINE_URL", "url", "https://redmine.example.com"],
+      ["redmine_api_key", "REDMINE_API_KEY", "secret", "api key"],
     ],
   },
   {
@@ -37,8 +37,8 @@ const SECTIONS = [
     blurb: "Maps commits onto existing Redmine features.",
     fields: [
       ["ai_provider", "AI_PROVIDER", "text", "groq"],
-      ["groq_api_key", "GROQ_API_KEY", "password", "gsk_…"],
-      ["openai_api_key", "OPENAI_API_KEY", "password", "sk-…"],
+      ["groq_api_key", "GROQ_API_KEY", "secret", "gsk_…"],
+      ["openai_api_key", "OPENAI_API_KEY", "secret", "sk-…"],
     ],
   },
   {
@@ -91,6 +91,25 @@ function normalizeSettings(data) {
     if (next[key] == null) next[key] = "";
   }
   return next;
+}
+
+function PlainField({ label, type, value, placeholder, onChange }) {
+  return (
+    <label className="field settings-field">
+      <span className="field-label-row">
+        <span>{label}</span>
+        <span className="field-badge-slot" aria-hidden="true" />
+      </span>
+      <input
+        type={type === "url" ? "url" : type}
+        value={value ?? ""}
+        placeholder={placeholder}
+        spellCheck={false}
+        onChange={onChange}
+      />
+      <span className="field-hint is-empty">{"\u00a0"}</span>
+    </label>
+  );
 }
 
 export default function SettingsPage() {
@@ -179,8 +198,9 @@ export default function SettingsPage() {
           ))}
         </ul>
         <p className="fineprint">
-          Secrets show a masked preview (first/last characters). Focus a field to replace it. Full
-          keys are never shown again after save.
+          Tokens and API keys stay masked. Use the eye only on those fields to peek at what you type.
+          Focus a secret to replace it — full keys are never shown again after save. URLs stay plain
+          text.
         </p>
       </div>
 
@@ -193,46 +213,39 @@ export default function SettingsPage() {
             </div>
             <div className="section-fields">
               {section.fields.map(([key, label, type, placeholder]) => {
-                const isEncryptedSecret = SECRET_KEYS.includes(key);
-                const useEyeToggle = type === "password";
-                const saved = isEncryptedSecret && secretIsSaved(form, key);
-                if (useEyeToggle) {
+                if (type === "secret") {
+                  const saved = secretIsSaved(form, key);
                   return (
                     <SecretField
                       key={key}
+                      layout="settings"
                       label={label}
                       value={form[key] ?? ""}
-                      placeholder={
-                        isEncryptedSecret && saved ? "Saved — focus to replace" : placeholder
-                      }
-                      defaultVisible={!isEncryptedSecret || isMaskedSecret(form[key])}
+                      placeholder={saved ? "Saved — focus to replace" : placeholder}
                       badge={
-                        isEncryptedSecret ? (
-                          <span className={`secret-badge ${saved ? "saved" : "missing"}`}>
-                            {saved ? "Saved in account" : "Not set"}
-                          </span>
-                        ) : undefined
+                        <span className={`secret-badge ${saved ? "saved" : "missing"}`}>
+                          {saved ? "Saved in account" : "Not set"}
+                        </span>
                       }
                       hint={
-                        isEncryptedSecret && saved && isMaskedSecret(form[key])
+                        saved && isMaskedSecret(form[key])
                           ? `Stored value: ${form[key]}`
                           : undefined
                       }
-                      onFocus={isEncryptedSecret ? () => onSecretFocus(key) : undefined}
+                      onFocus={() => onSecretFocus(key)}
                       onChange={(e) => setField(key, e.target.value)}
                     />
                   );
                 }
                 return (
-                  <label key={key} className="field">
-                    <span>{label}</span>
-                    <input
-                      type={type}
-                      value={form[key] ?? ""}
-                      placeholder={placeholder}
-                      onChange={(e) => setField(key, e.target.value)}
-                    />
-                  </label>
+                  <PlainField
+                    key={key}
+                    label={label}
+                    type={type}
+                    value={form[key] ?? ""}
+                    placeholder={placeholder}
+                    onChange={(e) => setField(key, e.target.value)}
+                  />
                 );
               })}
             </div>
@@ -245,8 +258,11 @@ export default function SettingsPage() {
             <p>Optional YAML overrides when fuzzy project matching isn’t enough.</p>
           </div>
           <div className="section-fields">
-            <label className="field full">
-              <span>MAPPINGS_YAML</span>
+            <label className="field settings-field full">
+              <span className="field-label-row">
+                <span>MAPPINGS_YAML</span>
+                <span className="field-badge-slot" aria-hidden="true" />
+              </span>
               <textarea
                 rows={9}
                 value={form.mappings_yaml || ""}
@@ -255,6 +271,7 @@ export default function SettingsPage() {
                   "repositories:\n  org/repo:\n    redmine_project: My Project\n    provider: github"
                 }
               />
+              <span className="field-hint is-empty">{"\u00a0"}</span>
             </label>
           </div>
         </section>

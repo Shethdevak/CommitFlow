@@ -1,7 +1,8 @@
 import { useId, useState } from "react";
 
-function EyeIcon({ open }) {
-  if (open) {
+function EyeIcon({ visible }) {
+  /* Icon shows the action: open eye = reveal, slash = hide */
+  if (visible) {
     return (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path
@@ -40,17 +41,19 @@ export default function SecretField({
   badge,
   hint,
   name,
-  defaultVisible = false,
+  /** "settings" reserves label/hint rows so grid columns align */
+  layout = "default",
 }) {
-  const [visible, setVisible] = useState(defaultVisible);
+  const [visible, setVisible] = useState(false);
   const id = useId();
+  const isSettings = layout === "settings";
 
   return (
-    <label className="field" htmlFor={id}>
-      {(label || badge) && (
+    <label className={`field${isSettings ? " settings-field" : ""}`} htmlFor={id}>
+      {(label || badge || isSettings) && (
         <span className="field-label-row">
           {label ? <span>{label}</span> : <span />}
-          {badge}
+          {badge || (isSettings ? <span className="field-badge-slot" aria-hidden="true" /> : null)}
         </span>
       )}
       <div className="secret-input-wrap">
@@ -73,11 +76,16 @@ export default function SecretField({
           onClick={() => setVisible((v) => !v)}
           aria-label={visible ? "Hide value" : "Show value"}
           aria-pressed={visible}
+          title={visible ? "Hide value" : "Show value"}
         >
-          <EyeIcon open={visible} />
+          <EyeIcon visible={visible} />
         </button>
       </div>
-      {hint ? <span className="field-hint">{hint}</span> : null}
+      {isSettings ? (
+        <span className={`field-hint${hint ? "" : " is-empty"}`}>{hint || "\u00a0"}</span>
+      ) : hint ? (
+        <span className="field-hint">{hint}</span>
+      ) : null}
     </label>
   );
 }

@@ -839,18 +839,34 @@ button:disabled { opacity: 0.55; cursor: wait; }
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+  min-height: 1.2rem;
+}
+.field-badge-slot {
+  flex: 0 0 auto;
+  min-height: 1.05em;
+  min-width: 1px;
 }
 .secret-badge {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 .secret-badge.saved { color: var(--ok); }
 .secret-badge.missing { color: var(--danger); }
 .field-hint {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
+  line-height: 1.25;
   color: var(--muted);
+  min-height: 1.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.field-hint.is-empty {
+  visibility: hidden;
+  user-select: none;
 }
 .settings-section {
   display: grid;
@@ -873,6 +889,17 @@ button:disabled { opacity: 0.55; cursor: wait; }
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.85rem 1rem;
+  align-items: start;
+}
+.section-fields .settings-field {
+  display: grid;
+  grid-template-rows: 1.2rem auto 1.25rem;
+  gap: 0.35rem;
+  align-content: start;
+  min-width: 0;
+}
+.section-fields .settings-field.full {
+  grid-template-rows: 1.2rem auto auto;
 }
 .section-fields .full { grid-column: 1 / -1; }
 
