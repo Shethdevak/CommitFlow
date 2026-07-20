@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
@@ -21,8 +22,13 @@ function Shell({ children }) {
     const onKey = (e) => {
       if (e.key === "Escape" && !signingOut) setConfirmOut(false);
     };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
   }, [confirmOut, signingOut]);
 
   async function confirmSignOut() {
@@ -94,45 +100,47 @@ function Shell({ children }) {
         <main className="workspace-main">{children}</main>
       </div>
 
-      {confirmOut && (
-        <div
-          className="modal-backdrop"
-          role="presentation"
-          onClick={() => !signingOut && setConfirmOut(false)}
-        >
+      {confirmOut &&
+        createPortal(
           <div
-            className="modal-card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="signout-modal-title"
-            onClick={(e) => e.stopPropagation()}
+            className="modal-backdrop"
+            role="presentation"
+            onClick={() => !signingOut && setConfirmOut(false)}
           >
-            <p className="modal-kicker modal-kicker-danger">Session</p>
-            <h2 id="signout-modal-title">Sign out of CommitFlow?</h2>
-            <p className="modal-copy">
-              You’ll need to sign in again to sync or update integrations on this browser.
-            </p>
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="btn-secondary"
-                disabled={signingOut}
-                onClick={() => setConfirmOut(false)}
-              >
-                Stay signed in
-              </button>
-              <button
-                type="button"
-                className="btn-danger"
-                disabled={signingOut}
-                onClick={confirmSignOut}
-              >
-                {signingOut ? "Signing out…" : "Sign out"}
-              </button>
+            <div
+              className="modal-card"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="signout-modal-title"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="modal-kicker modal-kicker-danger">Session</p>
+              <h2 id="signout-modal-title">Sign out of CommitFlow?</h2>
+              <p className="modal-copy">
+                You’ll need to sign in again to sync or update integrations on this browser.
+              </p>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={signingOut}
+                  onClick={() => setConfirmOut(false)}
+                >
+                  Stay signed in
+                </button>
+                <button
+                  type="button"
+                  className="btn-danger"
+                  disabled={signingOut}
+                  onClick={confirmSignOut}
+                >
+                  {signingOut ? "Signing out…" : "Sign out"}
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

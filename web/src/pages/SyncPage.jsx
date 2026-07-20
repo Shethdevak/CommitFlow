@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "../api";
 import { loadSyncDeskState, saveSyncDeskState } from "../syncDeskState";
 
@@ -51,8 +52,13 @@ export default function SyncPage() {
     const onKey = (e) => {
       if (e.key === "Escape" && !committing) setDialog(null);
     };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
   }, [dialog, committing]);
 
   const todos = result?.planned_todos || [];
@@ -358,89 +364,91 @@ export default function SyncPage() {
         </section>
       )}
 
-      {dialog && (
-        <div
-          className="modal-backdrop"
-          role="presentation"
-          onClick={() => !committing && setDialog(null)}
-        >
+      {dialog &&
+        createPortal(
           <div
-            className="modal-card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="plan-dialog-title"
-            onClick={(e) => e.stopPropagation()}
+            className="modal-backdrop"
+            role="presentation"
+            onClick={() => !committing && setDialog(null)}
           >
-            <p className={`modal-kicker ${dialog.type === "delete" ? "modal-kicker-danger" : ""}`}>
-              {dialog.type === "delete" ? "Remove from plan" : "Write to Redmine"}
-            </p>
-            <h2 id="plan-dialog-title">{dialogTitle}</h2>
-            <p className="modal-copy">{dialogCopy}</p>
+            <div
+              className="modal-card"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="plan-dialog-title"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className={`modal-kicker ${dialog.type === "delete" ? "modal-kicker-danger" : ""}`}>
+                {dialog.type === "delete" ? "Remove from plan" : "Write to Redmine"}
+              </p>
+              <h2 id="plan-dialog-title">{dialogTitle}</h2>
+              <p className="modal-copy">{dialogCopy}</p>
 
-            {dialog.todo && (
-              <ul className="modal-preview">
-                <li>
-                  <span>{dialog.todo.hours}h</span>
-                  <p>{dialog.todo.subject}</p>
-                </li>
-              </ul>
-            )}
-
-            {dialog.type === "commit-all" && (
-              <>
-                <div className="modal-stats">
-                  <div>
-                    <span>Date</span>
-                    <strong>{result?.date}</strong>
-                  </div>
-                  <div>
-                    <span>To-dos</span>
-                    <strong>{todos.length}</strong>
-                  </div>
-                  <div>
-                    <span>Hours</span>
-                    <strong>{result?.hours_logged}h</strong>
-                  </div>
-                </div>
+              {dialog.todo && (
                 <ul className="modal-preview">
-                  {todos.slice(0, 4).map((t) => (
-                    <li key={t._uid}>
-                      <span>{t.hours}h</span>
-                      <p>{t.subject}</p>
-                    </li>
-                  ))}
-                  {todos.length > 4 && <li className="more">+{todos.length - 4} more</li>}
+                  <li>
+                    <span>{dialog.todo.hours}h</span>
+                    <p>{dialog.todo.subject}</p>
+                  </li>
                 </ul>
-              </>
-            )}
+              )}
 
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => setDialog(null)}
-                disabled={committing}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className={dialog.type === "delete" ? "btn-danger" : "btn-accent"}
-                onClick={confirmDialog}
-                disabled={committing}
-              >
-                {committing
-                  ? "Writing to Redmine…"
-                  : dialog.type === "delete"
-                    ? "Yes, remove"
-                    : dialog.type === "commit-one"
-                      ? "Yes, write to Redmine"
-                      : "Yes, write all to Redmine"}
-              </button>
+              {dialog.type === "commit-all" && (
+                <>
+                  <div className="modal-stats">
+                    <div>
+                      <span>Date</span>
+                      <strong>{result?.date}</strong>
+                    </div>
+                    <div>
+                      <span>To-dos</span>
+                      <strong>{todos.length}</strong>
+                    </div>
+                    <div>
+                      <span>Hours</span>
+                      <strong>{result?.hours_logged}h</strong>
+                    </div>
+                  </div>
+                  <ul className="modal-preview">
+                    {todos.slice(0, 4).map((t) => (
+                      <li key={t._uid}>
+                        <span>{t.hours}h</span>
+                        <p>{t.subject}</p>
+                      </li>
+                    ))}
+                    {todos.length > 4 && <li className="more">+{todos.length - 4} more</li>}
+                  </ul>
+                </>
+              )}
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setDialog(null)}
+                  disabled={committing}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className={dialog.type === "delete" ? "btn-danger" : "btn-accent"}
+                  onClick={confirmDialog}
+                  disabled={committing}
+                >
+                  {committing
+                    ? "Writing to Redmine…"
+                    : dialog.type === "delete"
+                      ? "Yes, remove"
+                      : dialog.type === "commit-one"
+                        ? "Yes, write to Redmine"
+                        : "Yes, write all to Redmine"}
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
