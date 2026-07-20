@@ -19,7 +19,7 @@ const SECTIONS = [
     fields: [
       ["github_token", "GITHUB_TOKEN", "secret", "ghp_…"],
       ["gitlab_token", "GITLAB_TOKEN", "secret", "glpat-…"],
-      ["gitlab_api_url", "GITLAB_API_URL", "url", "https://git.example.com"],
+      ["gitlab_api_url", "GITLAB_API_URL", "masked", "https://git.example.com"],
     ],
   },
   {
@@ -27,7 +27,7 @@ const SECTIONS = [
     title: "Redmine",
     blurb: "Where to-dos and spent time land.",
     fields: [
-      ["redmine_url", "REDMINE_URL", "url", "https://redmine.example.com"],
+      ["redmine_url", "REDMINE_URL", "masked", "https://redmine.example.com"],
       ["redmine_api_key", "REDMINE_API_KEY", "secret", "api key"],
     ],
   },
@@ -198,9 +198,8 @@ export default function SettingsPage() {
           ))}
         </ul>
         <p className="fineprint">
-          Tokens and API keys stay masked. Use the eye only on those fields to peek at what you type.
-          Focus a secret to replace it — full keys are never shown again after save. URLs stay plain
-          text.
+          Tokens and API keys stay masked. URLs use the eye to show or hide what is stored. Focus a
+          secret to replace it — full keys are never shown again after save.
         </p>
       </div>
 
@@ -213,8 +212,8 @@ export default function SettingsPage() {
             </div>
             <div className="section-fields">
               {section.fields.map(([key, label, type, placeholder]) => {
-                if (type === "secret") {
-                  const saved = secretIsSaved(form, key);
+                if (type === "secret" || type === "masked") {
+                  const saved = type === "secret" && secretIsSaved(form, key);
                   return (
                     <SecretField
                       key={key}
@@ -223,16 +222,18 @@ export default function SettingsPage() {
                       value={form[key] ?? ""}
                       placeholder={saved ? "Saved — focus to replace" : placeholder}
                       badge={
-                        <span className={`secret-badge ${saved ? "saved" : "missing"}`}>
-                          {saved ? "Saved in account" : "Not set"}
-                        </span>
+                        type === "secret" ? (
+                          <span className={`secret-badge ${saved ? "saved" : "missing"}`}>
+                            {saved ? "Saved in account" : "Not set"}
+                          </span>
+                        ) : undefined
                       }
                       hint={
-                        saved && isMaskedSecret(form[key])
+                        type === "secret" && saved && isMaskedSecret(form[key])
                           ? `Stored value: ${form[key]}`
                           : undefined
                       }
-                      onFocus={() => onSecretFocus(key)}
+                      onFocus={type === "secret" ? () => onSecretFocus(key) : undefined}
                       onChange={(e) => setField(key, e.target.value)}
                     />
                   );
