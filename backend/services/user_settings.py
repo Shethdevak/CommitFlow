@@ -3,7 +3,7 @@
 import os
 from typing import Any, Dict, Optional
 from backend.db.models import UserSettings
-from backend.security import encrypt_text, decrypt_text, mask_secret
+from backend.security import encrypt_text, decrypt_text, decrypt_text_ex, mask_secret
 from backend.schemas import UserSettingsUpdate, UserSettingsOut
 
 
@@ -56,6 +56,23 @@ def apply_settings_update(row: UserSettings, payload: UserSettingsUpdate) -> Use
     return row
 
 
+def migrate_encrypted_secrets(row: UserSettings) -> bool:
+    """Re-encrypt any secrets that still use a legacy Fernet key. Returns True if row changed."""
+    changed = False
+    for enc_col in SECRET_FIELDS.values():
+        enc = getattr(row, enc_col, None)
+        if not enc:
+            continue
+        try:
+            plain, used_legacy = decrypt_text_ex(enc)
+        except ValueError:
+            continue
+        if used_legacy and plain:
+            setattr(row, enc_col, encrypt_text(plain))
+            changed = True
+    return changed
+
+
 def settings_to_public(row: Optional[UserSettings]) -> UserSettingsOut:
     if not row:
         return UserSettingsOut()
@@ -64,9 +81,14 @@ def settings_to_public(row: Optional[UserSettings]) -> UserSettingsOut:
         if not enc:
             return None
         try:
-            return decrypt_text(enc)
+            plain, _ = decrypt_text_ex(enc)
+            return plain
         except Exception:
             return None
+
+    def _has_enc(enc: Optional[str]) -> bool:
+        """True if ciphertext exists (even when current key cannot decrypt it)."""
+        return bool(enc and str(enc).strip())
 
     gh = _dec(row.github_token_enc)
     gl = _dec(row.gitlab_token_enc)
@@ -102,11 +124,12 @@ def settings_to_public(row: Optional[UserSettings]) -> UserSettingsOut:
         gemini_api_key=mask_secret(gem),
         anthropic_api_key=mask_secret(ant),
         openrouter_api_key=mask_secret(oro),
-        has_github_token=bool(gh),
-        has_gitlab_token=bool(gl),
-        has_redmine_api_key=bool(rm),
-        has_groq_api_key=bool(groq),
-        has_openai_api_key=bool(oai),
+        # Count ciphertext as "saved" so UI does not look empty after a key rotation
+        has_github_token=bool(gh) or _has_enc(row.github_token_enc),
+        has_gitlab_token=bool(gl) or _has_enc(row.gitlab_token_enc),
+        has_redmine_api_key=bool(rm) or _has_enc(row.redmine_api_key_enc),
+        has_groq_api_key=bool(groq) or _has_enc(row.groq_api_key_enc),
+        has_openai_api_key=bool(oai) or _has_enc(row.openai_api_key_enc),
     )
 
 
@@ -119,7 +142,9 @@ def build_settings_mapping(row: UserSettings, *, db_path: str, mappings_path: st
         return decrypt_text(enc)
 
     def _opt_dec(enc: Optional[str]) -> Optional[str]:
-        return decrypt_text(enc) if enc else None
+        if not enc:
+            return None
+        return decrypt_text(enc)
 
     if not row.redmine_url:
         raise ValueError("REDMINE_URL is required in settings")

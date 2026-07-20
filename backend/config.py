@@ -16,7 +16,10 @@ class ApiSettings(BaseSettings):
 
     # App
     api_secret_key: str = Field("change-me-in-production-use-long-random-string", validation_alias="API_SECRET_KEY")
+    # Prefer a dedicated Fernet key that you never rotate casually.
     api_fernet_key: Optional[str] = Field(None, validation_alias="API_FERNET_KEY")
+    # Comma-separated prior API_SECRET_KEY / API_FERNET_KEY values (decrypt-only fallback).
+    api_fernet_legacy_secrets: str = Field("", validation_alias="API_FERNET_LEGACY_SECRETS")
     api_cors_origins: str = Field(
         "https://commit-flow-two.vercel.app,http://localhost:5173,http://127.0.0.1:5173",
         validation_alias="API_CORS_ORIGINS",

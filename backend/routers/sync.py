@@ -7,7 +7,7 @@ from backend.db.models import User, UserSettings
 from backend.auth.deps import get_current_user
 from backend.config import get_api_settings
 from backend.schemas import SyncRequest, SyncResultOut, PlannedTodoOut, CommitPlannedRequest
-from backend.services.user_settings import build_settings_mapping, ensure_user_paths
+from backend.services.user_settings import build_settings_mapping, ensure_user_paths, migrate_encrypted_secrets
 from app.config.settings import Settings
 from app.models.domain import WorkTodo, SyncResult
 from app.services.factory import build_sync_service
@@ -19,6 +19,12 @@ def _service_for_user(user: User, db: Session):
     row = db.query(UserSettings).filter(UserSettings.user_id == user.id).first()
     if not row:
         raise HTTPException(status_code=400, detail="Save your settings first")
+
+    # Re-encrypt secrets that still use an old API_SECRET_KEY / Fernet material
+    if migrate_encrypted_secrets(row):
+        db.add(row)
+        db.commit()
+        db.refresh(row)
 
     api_settings = get_api_settings()
     try:
