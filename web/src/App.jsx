@@ -89,7 +89,7 @@ function Shell({ children }) {
       <div className="workspace">
         <header className="workspace-top">
           <p className="workspace-kicker">Worklog automation</p>
-          <p className="workspace-hint">Preview first. Commit when the hours look right.</p>
+          <p className="workspace-hint">Preview first. Write to Redmine when the hours look right.</p>
         </header>
         <main className="workspace-main">{children}</main>
       </div>

@@ -122,7 +122,7 @@ export default function SyncPage() {
           // Keep a note that a write happened
           errors: [
             ...(data.errors || []),
-            `Committed ${todosToWrite.length} to-do(s). ${remaining.length} still in your plan.`,
+            `Wrote ${todosToWrite.length} to-do(s) to Redmine. ${remaining.length} still in your plan.`,
           ],
         });
       } else {
@@ -158,23 +158,23 @@ export default function SyncPage() {
     dialog?.type === "delete"
       ? "Remove this to-do?"
       : dialog?.type === "commit-one"
-        ? "Commit this to-do?"
-        : "Commit all to-dos?";
+        ? "Write this to-do to Redmine?"
+        : "Write all to-dos to Redmine?";
 
   const dialogCopy =
     dialog?.type === "delete"
       ? "It will leave your day plan. Hours are not auto-moved — edit another row if you want to reassign time."
       : dialog?.type === "commit-one"
-        ? "Only this to-do will be written to Redmine with the hours shown. Other rows stay in your plan."
-        : "All remaining to-dos in this plan will be written to Redmine with your edited hours.";
+        ? "Only this to-do will be created/updated in Redmine with the hours shown. Nothing is pushed to Git. Other rows stay in your plan."
+        : "All remaining to-dos in this plan will be written to Redmine with your edited hours. This does not push anything to GitHub or GitLab.";
 
   return (
     <div className="page-block reveal">
       <header className="page-intro">
         <h1>Sync desk</h1>
         <p>
-          Scan commits, weight the day, preview the plan — edit hours, remove rows, or commit one
-          to-do at a time.
+          Scan Git commits, weight the day, preview the plan — then write to-dos and hours to
+          Redmine one row at a time, or all at once.
         </p>
       </header>
 
@@ -201,7 +201,7 @@ export default function SyncPage() {
               onClick={() => setDialog({ type: "commit-all" })}
               disabled={committing}
             >
-              Commit all
+              Write all to Redmine
             </button>
           )}
         </div>
@@ -237,8 +237,8 @@ export default function SyncPage() {
               <div>
                 <h3>Plan for {result.date}</h3>
                 <p>
-                  Edit hours on a row, commit that row alone, or remove it. Use Commit all when the
-                  whole plan looks right.
+                  Edit hours on a row, write that row to Redmine, or remove it. Use Write all when
+                  the whole plan looks right.
                 </p>
               </div>
               <button
@@ -247,7 +247,7 @@ export default function SyncPage() {
                 onClick={() => setDialog({ type: "commit-all" })}
                 disabled={!canCommitAll}
               >
-                Commit all
+                Write all to Redmine
               </button>
             </div>
           )}
@@ -276,7 +276,7 @@ export default function SyncPage() {
                 <h2>Day plan</h2>
                 <p>
                   {editable
-                    ? "Change hours, then Commit on a row — or Remove it from the plan."
+                    ? "Change hours, then Write to Redmine on a row — or Remove it from the plan."
                     : result.date
                       ? `Plan for ${result.date}`
                       : "Bar width reflects relative hours in this plan."}
@@ -328,8 +328,10 @@ export default function SyncPage() {
                           className="btn-row-commit"
                           disabled={committing || !(Number(t.hours) > 0)}
                           onClick={() => setDialog({ type: "commit-one", todo: t })}
+                          title="Write this to-do and hours to Redmine"
+                          aria-label={`Write “${t.subject}” to Redmine`}
                         >
-                          Commit
+                          Write to Redmine
                         </button>
                         <button
                           type="button"
@@ -428,12 +430,12 @@ export default function SyncPage() {
                 disabled={committing}
               >
                 {committing
-                  ? "Working…"
+                  ? "Writing to Redmine…"
                   : dialog.type === "delete"
                     ? "Yes, remove"
                     : dialog.type === "commit-one"
-                      ? "Yes, commit this"
-                      : "Yes, write all"}
+                      ? "Yes, write to Redmine"
+                      : "Yes, write all to Redmine"}
               </button>
             </div>
           </div>
