@@ -470,9 +470,17 @@ button:disabled { opacity: 0.55; cursor: wait; }
 .who-name { margin: 0; font-weight: 600; font-size: 0.92rem; }
 .who-meta { margin: 0; color: var(--muted); font-size: 0.75rem; }
 
-.workspace { position: relative; z-index: 1; min-width: 0; }
+.workspace {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
 .workspace-top {
-  padding: 1.25rem 1.5rem 0.25rem;
+  width: 100%;
+  padding: 1.25rem clamp(1.25rem, 2.5vw, 2.75rem) 0.35rem;
   border-bottom: 1px solid transparent;
 }
 .workspace-kicker {
@@ -484,7 +492,17 @@ button:disabled { opacity: 0.55; cursor: wait; }
   color: var(--teal);
 }
 .workspace-hint { margin: 0.2rem 0 0; color: var(--muted); }
-.workspace-main { padding: 1rem 1.5rem 3rem; max-width: 1080px; }
+.workspace-main {
+  flex: 1;
+  width: 100%;
+  max-width: none;
+  padding: 1rem clamp(1.25rem, 2.5vw, 2.75rem) 3rem;
+}
+
+.page-block {
+  width: 100%;
+  max-width: 1480px;
+}
 
 .page-intro h1 {
   font-family: var(--font-display);
@@ -496,7 +514,7 @@ button:disabled { opacity: 0.55; cursor: wait; }
 .page-intro p {
   margin: 0;
   color: var(--ink-soft);
-  max-width: 40rem;
+  max-width: 46rem;
 }
 
 /* ---------- Sync ---------- */
@@ -836,9 +854,9 @@ button:disabled { opacity: 0.55; cursor: wait; }
 }
 .settings-section {
   display: grid;
-  grid-template-columns: minmax(180px, 0.35fr) 1fr;
-  gap: 1.25rem;
-  padding: 1.15rem;
+  grid-template-columns: minmax(200px, 240px) minmax(0, 1fr);
+  gap: clamp(1.25rem, 2vw, 2rem);
+  padding: 1.25rem clamp(1.15rem, 1.5vw, 1.6rem);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel);
@@ -850,13 +868,22 @@ button:disabled { opacity: 0.55; cursor: wait; }
   font-size: 1.35rem;
   font-weight: 560;
 }
-.section-copy p { margin: 0; color: var(--muted); }
+.section-copy p { margin: 0; color: var(--muted); max-width: 22rem; }
 .section-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.85rem;
+  gap: 0.85rem 1rem;
 }
 .section-fields .full { grid-column: 1 / -1; }
+
+@media (min-width: 1280px) {
+  .section-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .settings-status-list {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+}
 .form-actions {
   display: flex;
   flex-wrap: wrap;
