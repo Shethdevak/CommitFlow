@@ -41,6 +41,27 @@ def _ensure_email_verified_column(engine) -> None:
             )
 
 
+def _ensure_email_otp_user_id_column(engine) -> None:
+    """Add email_otps.user_id for email-change OTP binding."""
+    insp = inspect(engine)
+    if "email_otps" not in insp.get_table_names():
+        return
+    cols = {c["name"] for c in insp.get_columns("email_otps")}
+    if "user_id" in cols:
+        return
+    dialect = engine.dialect.name
+    with engine.begin() as conn:
+        if dialect == "postgresql":
+            conn.execute(text("ALTER TABLE email_otps ADD COLUMN user_id INTEGER"))
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_email_otps_user_id ON email_otps (user_id)"
+                )
+            )
+        else:
+            conn.execute(text("ALTER TABLE email_otps ADD COLUMN user_id INTEGER"))
+
+
 def init_api_db() -> None:
     global _engine, _SessionLocal
     settings = get_api_settings()
@@ -50,6 +71,7 @@ def init_api_db() -> None:
     _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
     Base.metadata.create_all(bind=_engine)
     _ensure_email_verified_column(_engine)
+    _ensure_email_otp_user_id_column(_engine)
 
 
 def get_db():

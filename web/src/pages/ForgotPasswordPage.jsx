@@ -227,9 +227,6 @@ export default function ForgotPasswordPage() {
             >
               {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend code"}
             </button>
-            <button type="button" className="text-switch" onClick={goBack}>
-              Use a different email
-            </button>
           </form>
         )}
 
@@ -256,22 +253,24 @@ export default function ForgotPasswordPage() {
             <button type="submit" className="btn-primary wide" disabled={busy}>
               {busy ? "Updating…" : "Update password"}
             </button>
-            <button type="button" className="text-switch" onClick={goBack}>
-              Back to code
-            </button>
           </form>
         )}
 
-        {step === "email" && (
+        <div className="auth-footer">
+          {step === "code" && (
+            <button type="button" className="text-switch" onClick={goBack}>
+              Use a different email
+            </button>
+          )}
+          {step === "password" && (
+            <button type="button" className="text-switch" onClick={goBack}>
+              Back to code
+            </button>
+          )}
           <Link className="text-switch" to="/login">
-            Back to sign in
+            ← Back to sign in
           </Link>
-        )}
-        {step !== "email" && (
-          <Link className="text-switch" to="/login">
-            Cancel and sign in
-          </Link>
-        )}
+        </div>
       </section>
     </div>
   );

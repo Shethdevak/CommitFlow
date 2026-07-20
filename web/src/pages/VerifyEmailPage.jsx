@@ -133,9 +133,11 @@ export default function VerifyEmailPage() {
           {cooldown > 0 ? `Resend in ${cooldown}s` : resendBusy ? "Sending…" : "Resend code"}
         </button>
 
-        <Link className="text-switch" to="/login">
-          Back to sign in
-        </Link>
+        <div className="auth-footer">
+          <Link className="text-switch" to="/login">
+            ← Back to sign in
+          </Link>
+        </div>
       </section>
     </div>
   );

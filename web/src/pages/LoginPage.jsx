@@ -189,13 +189,15 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <button
-          type="button"
-          className="text-switch"
-          onClick={() => switchMode(mode === "login" ? "register" : "login")}
-        >
-          {mode === "login" ? "New here? Create an account" : "Already set up? Sign in"}
-        </button>
+        <div className="auth-footer">
+          <button
+            type="button"
+            className="text-switch"
+            onClick={() => switchMode(mode === "login" ? "register" : "login")}
+          >
+            {mode === "login" ? "New here? Create an account" : "Already set up? Sign in"}
+          </button>
+        </div>
       </section>
     </div>
   );

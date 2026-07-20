@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -13,8 +13,9 @@ from sqlalchemy.orm import Session
 from backend.config import get_api_settings
 from backend.db.models import EmailOtp
 from backend.services.email import send_email
+from backend.services.email_templates import build_otp_email
 
-Purpose = Literal["signup", "reset"]
+Purpose = Literal["signup", "reset", "email_change"]
 
 
 def _hash_code(email: str, purpose: str, code: str) -> str:
@@ -30,11 +31,20 @@ def _generate_code() -> str:
     return str(secrets.randbelow(upper)).zfill(length)
 
 
-def create_and_send_otp(db: Session, *, email: str, purpose: Purpose) -> dict:
+def create_and_send_otp(
+    db: Session,
+    *,
+    email: str,
+    purpose: Purpose,
+    user_id: Optional[int] = None,
+) -> dict:
     """Create/replace OTP for email+purpose and send it. Returns public meta."""
     settings = get_api_settings()
     email_l = email.lower().strip()
     now = datetime.utcnow()
+
+    if purpose == "email_change" and user_id is None:
+        raise HTTPException(status_code=500, detail="email_change OTP requires user_id")
 
     existing = (
         db.query(EmailOtp)
@@ -60,6 +70,7 @@ def create_and_send_otp(db: Session, *, email: str, purpose: Purpose) -> dict:
         existing.attempts = 0
         existing.expires_at = expires
         existing.last_sent_at = now
+        existing.user_id = user_id
     else:
         db.add(
             EmailOtp(
@@ -69,31 +80,16 @@ def create_and_send_otp(db: Session, *, email: str, purpose: Purpose) -> dict:
                 attempts=0,
                 expires_at=expires,
                 last_sent_at=now,
+                user_id=user_id,
             )
         )
     db.flush()
 
-    if purpose == "signup":
-        subject = "Verify your CommitFlow email"
-        blurb = "Use this code to verify your CommitFlow account:"
-    else:
-        subject = "Reset your CommitFlow password"
-        blurb = "Use this code to reset your CommitFlow password:"
-
-    text = (
-        f"{blurb}\n\n"
-        f"  {code}\n\n"
-        f"This code expires in {settings.otp_expire_minutes} minutes. "
-        f"If you did not request this, you can ignore this email."
+    subject, text, html = build_otp_email(
+        code=code,
+        purpose=purpose,
+        expire_minutes=int(settings.otp_expire_minutes),
     )
-    html = f"""
-    <div style="font-family:Georgia,serif;max-width:480px;margin:0 auto;color:#14181c">
-      <h1 style="font-size:22px">CommitFlow</h1>
-      <p>{blurb}</p>
-      <p style="font-size:28px;letter-spacing:0.2em;font-weight:700">{code}</p>
-      <p style="color:#6b7580;font-size:14px">Expires in {settings.otp_expire_minutes} minutes.</p>
-    </div>
-    """
     try:
         send_email(to=email_l, subject=subject, text=text, html=html)
     except RuntimeError as e:
@@ -110,7 +106,14 @@ def create_and_send_otp(db: Session, *, email: str, purpose: Purpose) -> dict:
     }
 
 
-def verify_otp(db: Session, *, email: str, purpose: Purpose, code: str) -> None:
+def verify_otp(
+    db: Session,
+    *,
+    email: str,
+    purpose: Purpose,
+    code: str,
+    user_id: Optional[int] = None,
+) -> None:
     settings = get_api_settings()
     email_l = email.lower().strip()
     code = (code or "").strip()
@@ -123,6 +126,10 @@ def verify_otp(db: Session, *, email: str, purpose: Purpose, code: str) -> None:
     )
     if not row:
         raise HTTPException(status_code=400, detail="No verification code found. Request a new one.")
+
+    if purpose == "email_change":
+        if user_id is None or row.user_id != user_id:
+            raise HTTPException(status_code=400, detail="This code is not valid for your account.")
 
     if row.expires_at < now:
         raise HTTPException(status_code=400, detail="Code expired. Request a new one.")

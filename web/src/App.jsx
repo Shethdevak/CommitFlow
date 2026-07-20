@@ -7,6 +7,7 @@ import ForgotPasswordPage from "./pages/ForgotPasswordPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
 import SyncPage from "./pages/SyncPage.jsx";
 import TodosPage from "./pages/TodosPage.jsx";
+import AccountPage from "./pages/AccountPage.jsx";
 import AuthCallback from "./pages/AuthCallback.jsx";
 
 function Shell({ children }) {
@@ -68,13 +69,17 @@ function Shell({ children }) {
         </nav>
 
         <div className="rail-foot">
-          <div className="who">
+          <NavLink
+            to="/account"
+            className={({ isActive }) => (isActive ? "who who-link is-active" : "who who-link")}
+            title="Account settings"
+          >
             <span className="avatar">{label.slice(0, 1).toUpperCase()}</span>
             <div>
               <p className="who-name">{label}</p>
-              <p className="who-meta">Signed in</p>
+              <p className="who-meta">Account</p>
             </div>
-          </div>
+          </NavLink>
           <button type="button" className="btn-quiet btn-signout" onClick={() => setConfirmOut(true)}>
             Sign out
           </button>
@@ -174,6 +179,14 @@ export default function App() {
         element={
           <Private>
             <SettingsPage />
+          </Private>
+        }
+      />
+      <Route
+        path="/account"
+        element={
+          <Private>
+            <AccountPage />
           </Private>
         }
       />

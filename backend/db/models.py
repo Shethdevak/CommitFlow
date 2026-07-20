@@ -24,19 +24,21 @@ class User(Base):
 
 
 class EmailOtp(Base):
-    """Hashed one-time codes for signup verification and password reset."""
+    """Hashed one-time codes for signup, password reset, and email change."""
 
     __tablename__ = "email_otps"
     __table_args__ = (UniqueConstraint("email", "purpose", name="uq_email_otps_email_purpose"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     email = Column(String(255), nullable=False, index=True)
-    purpose = Column(String(32), nullable=False)  # signup | reset
+    purpose = Column(String(32), nullable=False)  # signup | reset | email_change
     code_hash = Column(String(128), nullable=False)
     attempts = Column(Integer, default=0, nullable=False)
     expires_at = Column(DateTime, nullable=False)
     last_sent_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # Set for email_change so only the requesting user can verify
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
 
 class UserSettings(Base):

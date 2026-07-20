@@ -109,9 +109,53 @@ class UserOut(BaseModel):
     display_name: Optional[str] = None
     github_login: Optional[str] = None
     email_verified: bool = False
+    has_password: bool = False
 
     class Config:
         from_attributes = True
+
+
+def user_to_out(user) -> UserOut:
+    return UserOut(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        github_login=user.github_login,
+        email_verified=bool(user.email_verified),
+        has_password=bool(user.password_hash),
+    )
+
+
+class UpdateDisplayNameRequest(BaseModel):
+    display_name: str = Field(min_length=1, max_length=255)
+
+    @field_validator("display_name")
+    @classmethod
+    def strip_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise ValueError("Display name cannot be empty")
+        return name
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)
+
+    @field_validator("new_password")
+    @classmethod
+    def password_must_be_strong(cls, value: str) -> str:
+        return validate_strong_password(value)
+
+
+class ChangeEmailRequest(BaseModel):
+    new_email: EmailStr
+    current_password: str
+
+
+class VerifyChangeEmailRequest(BaseModel):
+    new_email: EmailStr
+    code: str = Field(min_length=4, max_length=8)
 
 
 class UserSettingsUpdate(BaseModel):

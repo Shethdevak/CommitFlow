@@ -1,7 +1,7 @@
 import secrets
 from urllib.parse import urlencode
 import requests
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from backend.db.session import get_db
@@ -11,6 +11,7 @@ from backend.schemas import (
     LoginRequest,
     AuthResponse,
     UserOut,
+    user_to_out,
     RegisterPendingResponse,
     OtpSendRequest,
     OtpVerifyRequest,
@@ -19,6 +20,10 @@ from backend.schemas import (
     VerifyResetCodeResponse,
     ResetPasswordRequest,
     OtpMetaResponse,
+    UpdateDisplayNameRequest,
+    ChangePasswordRequest,
+    ChangeEmailRequest,
+    VerifyChangeEmailRequest,
 )
 from backend.auth.tokens import (
     hash_password,
@@ -26,14 +31,31 @@ from backend.auth.tokens import (
     create_access_token,
     create_password_reset_token,
     decode_password_reset_token,
+    decode_access_token,
 )
 from backend.auth.deps import get_current_user
-from backend.auth.cookies import set_auth_cookie, clear_auth_cookie
+from backend.auth.cookies import COOKIE_NAME, set_auth_cookie, clear_auth_cookie
 from backend.config import get_api_settings
 from backend.services.otp import create_and_send_otp, verify_otp
 from jose import JWTError
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _remember_from_request(request: Request) -> bool:
+    token = request.cookies.get(COOKIE_NAME)
+    if not token:
+        return False
+    try:
+        return bool(decode_access_token(token).get("rm"))
+    except JWTError:
+        return False
+
+
+def _refresh_session_cookie(request: Request, response: Response, user: User) -> None:
+    remember = _remember_from_request(request)
+    token = create_access_token(user.id, user.email, remember_me=remember)
+    set_auth_cookie(response, token, remember_me=remember)
 
 
 @router.post("/register", response_model=RegisterPendingResponse)
@@ -78,7 +100,7 @@ def login(body: LoginRequest, response: Response, db: Session = Depends(get_db))
         )
     token = create_access_token(user.id, user.email, remember_me=body.remember_me)
     set_auth_cookie(response, token, remember_me=body.remember_me)
-    return AuthResponse(user=UserOut.model_validate(user))
+    return AuthResponse(user=user_to_out(user))
 
 
 @router.post("/otp/send", response_model=OtpMetaResponse)
@@ -112,7 +134,7 @@ def verify_signup_otp(body: OtpVerifyRequest, response: Response, db: Session = 
 
     token = create_access_token(user.id, user.email, remember_me=body.remember_me)
     set_auth_cookie(response, token, remember_me=body.remember_me)
-    return AuthResponse(user=UserOut.model_validate(user))
+    return AuthResponse(user=user_to_out(user))
 
 
 @router.post("/password/forgot", response_model=OtpMetaResponse)
@@ -169,7 +191,103 @@ def logout(response: Response):
 
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
-    return UserOut.model_validate(user)
+    return user_to_out(user)
+
+
+@router.patch("/account/display-name", response_model=UserOut)
+def update_display_name(
+    body: UpdateDisplayNameRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user.display_name = body.display_name
+    db.commit()
+    db.refresh(user)
+    return user_to_out(user)
+
+
+@router.post("/account/password")
+def change_password(
+    body: ChangePasswordRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not user.password_hash:
+        raise HTTPException(
+            status_code=400,
+            detail="This account has no password. Set one via forgot password, or sign in with GitHub only.",
+        )
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+    if verify_password(body.new_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="New password must be different from the current one.")
+
+    user.password_hash = hash_password(body.new_password)
+    db.commit()
+    return {"ok": True, "message": "Password updated."}
+
+
+@router.post("/account/email/request", response_model=OtpMetaResponse)
+def request_email_change(
+    body: ChangeEmailRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not user.password_hash:
+        raise HTTPException(
+            status_code=400,
+            detail="Password confirmation is required to change email. Set a password first.",
+        )
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+
+    new_email = body.new_email.lower().strip()
+    if user.email and user.email.lower() == new_email:
+        raise HTTPException(status_code=400, detail="That is already your current email.")
+
+    taken = db.query(User).filter(User.email == new_email, User.id != user.id).first()
+    if taken:
+        raise HTTPException(status_code=400, detail="That email is already in use.")
+
+    meta = create_and_send_otp(
+        db,
+        email=new_email,
+        purpose="email_change",
+        user_id=user.id,
+    )
+    return OtpMetaResponse(**meta)
+
+
+@router.post("/account/email/verify", response_model=UserOut)
+def verify_email_change(
+    body: VerifyChangeEmailRequest,
+    request: Request,
+    response: Response,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    new_email = body.new_email.lower().strip()
+    if user.email and user.email.lower() == new_email:
+        raise HTTPException(status_code=400, detail="That is already your current email.")
+
+    taken = db.query(User).filter(User.email == new_email, User.id != user.id).first()
+    if taken:
+        raise HTTPException(status_code=400, detail="That email is already in use.")
+
+    verify_otp(
+        db,
+        email=new_email,
+        purpose="email_change",
+        code=body.code,
+        user_id=user.id,
+    )
+
+    user.email = new_email
+    user.email_verified = True
+    db.commit()
+    db.refresh(user)
+    _refresh_session_cookie(request, response, user)
+    return user_to_out(user)
 
 
 @router.get("/github/login")

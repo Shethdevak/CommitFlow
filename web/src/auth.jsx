@@ -80,12 +80,12 @@ export function AuthProvider({ children }) {
           body: { reset_token, password },
         });
       },
-      async refreshUser() {
-        setLoading(true);
+      async refreshUser({ quiet = true } = {}) {
+        if (!quiet) setLoading(true);
         try {
           return await loadUser();
         } finally {
-          setLoading(false);
+          if (!quiet) setLoading(false);
         }
       },
       async logout() {
