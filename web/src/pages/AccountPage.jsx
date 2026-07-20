@@ -4,7 +4,7 @@ import { useAuth } from "../auth.jsx";
 import SecretField from "../components/SecretField.jsx";
 
 const PASSWORD_RULE =
-  "Use at least 8 characters with 1 uppercase letter, 1 number, and 1 special character.";
+  "At least 8 characters, with 1 uppercase, 1 number, and 1 special character.";
 
 export default function AccountPage() {
   const { user, refreshUser } = useAuth();
@@ -52,7 +52,7 @@ export default function AccountPage() {
       });
       await refreshUser();
       setDisplayName(updated.display_name || "");
-      setNameMsg("Display name updated.");
+      setNameMsg("Saved.");
     } catch (err) {
       setNameError(err.message);
     } finally {
@@ -170,63 +170,57 @@ export default function AccountPage() {
   const label = user?.display_name || user?.email || user?.github_login || "Account";
 
   return (
-    <div className="page-block reveal">
+    <div className="page-block account-page reveal">
       <header className="page-intro">
         <h1>Account</h1>
-        <p>Update your profile, password, and email. Email changes require a verification code.</p>
+        <p>Profile, password, and email — email changes need a verification code.</p>
       </header>
 
-      <div className="account-hero">
-        <span className="account-avatar" aria-hidden="true">
-          {label.slice(0, 1).toUpperCase()}
-        </span>
-        <div>
-          <p className="account-hero-name">{label}</p>
-          <p className="account-hero-meta">{user?.email || "No email on file"}</p>
-        </div>
-      </div>
-
       <div className="account-stack">
-        <section className="settings-section">
-          <div className="section-copy">
-            <h2>Display name</h2>
-            <p>Shown in the sidebar and on your account.</p>
-          </div>
-          <form className="section-fields account-form" onSubmit={saveDisplayName}>
-            <label className="field settings-field full">
-              <span className="field-label-row">
-                <span>Display name</span>
-                <span className="field-badge-slot" aria-hidden="true" />
+        <section className="account-panel">
+          <div className="account-panel-head">
+            <div className="account-identity">
+              <span className="account-avatar" aria-hidden="true">
+                {label.slice(0, 1).toUpperCase()}
               </span>
-              <input
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Your name"
-                required
-                maxLength={255}
-                autoComplete="nickname"
-              />
-              <span className="field-hint is-empty">{"\u00a0"}</span>
-            </label>
-            <div className="account-actions full">
-              {nameMsg && <p className="banner-ok">{nameMsg}</p>}
-              {nameError && <p className="banner-error">{nameError}</p>}
+              <div>
+                <h2>Profile</h2>
+                <p>{user?.email || "No email on file"}</p>
+              </div>
+            </div>
+          </div>
+
+          <form className="account-form" onSubmit={saveDisplayName}>
+            <div className="account-inline">
+              <label className="field account-inline-field">
+                <span>Display name</span>
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Your name"
+                  required
+                  maxLength={255}
+                  autoComplete="nickname"
+                />
+              </label>
               <button type="submit" className="btn-primary" disabled={nameBusy}>
-                {nameBusy ? "Saving…" : "Save name"}
+                {nameBusy ? "Saving…" : "Save"}
               </button>
             </div>
+            {nameMsg && <p className="banner-ok account-flash">{nameMsg}</p>}
+            {nameError && <p className="banner-error account-flash">{nameError}</p>}
           </form>
         </section>
 
-        <section className="settings-section">
-          <div className="section-copy">
+        <section className="account-panel">
+          <div className="account-panel-head">
             <h2>Password</h2>
             <p>{PASSWORD_RULE}</p>
           </div>
-          <form className="section-fields account-form" onSubmit={savePassword}>
+
+          <form className="account-form account-form-grid account-form-split" onSubmit={savePassword}>
             <SecretField
-              layout="settings"
               label="Current password"
               value={currentPassword}
               required
@@ -234,7 +228,6 @@ export default function AccountPage() {
               onChange={(e) => setCurrentPassword(e.target.value)}
             />
             <SecretField
-              layout="settings"
               label="New password"
               value={newPassword}
               required
@@ -243,7 +236,6 @@ export default function AccountPage() {
               onChange={(e) => setNewPassword(e.target.value)}
             />
             <SecretField
-              layout="settings"
               label="Confirm new password"
               value={confirmPassword}
               required
@@ -251,12 +243,12 @@ export default function AccountPage() {
               autoComplete="new-password"
               onChange={(e) => setConfirmPassword(e.target.value)}
             />
-            <div className="account-actions full">
+            <div className="account-actions">
               {pwMsg && <p className="banner-ok">{pwMsg}</p>}
               {pwError && <p className="banner-error">{pwError}</p>}
               {!hasPassword && (
                 <p className="fineprint">
-                  This account has no password yet. Use forgot password on the sign-in page to set
+                  No password on this account yet. Use forgot password on the sign-in page to set
                   one.
                 </p>
               )}
@@ -267,22 +259,19 @@ export default function AccountPage() {
           </form>
         </section>
 
-        <section className="settings-section">
-          <div className="section-copy">
+        <section className="account-panel">
+          <div className="account-panel-head">
             <h2>Email</h2>
             <p>
-              Current: <strong>{user?.email || "—"}</strong>. We send a code to the new address
+              Current <strong>{user?.email || "—"}</strong>. We’ll send a code to the new address
               before switching.
             </p>
           </div>
 
           {emailStep === "form" ? (
-            <form className="section-fields account-form" onSubmit={requestEmailChange}>
-              <label className="field settings-field">
-                <span className="field-label-row">
-                  <span>New email</span>
-                  <span className="field-badge-slot" aria-hidden="true" />
-                </span>
+            <form className="account-form account-form-grid" onSubmit={requestEmailChange}>
+              <label className="field">
+                <span>New email</span>
                 <input
                   type="email"
                   value={newEmail}
@@ -291,23 +280,20 @@ export default function AccountPage() {
                   required
                   autoComplete="email"
                 />
-                <span className="field-hint is-empty">{"\u00a0"}</span>
               </label>
               <SecretField
-                layout="settings"
                 label="Current password"
                 value={emailPassword}
                 required
                 autoComplete="current-password"
                 onChange={(e) => setEmailPassword(e.target.value)}
               />
-              <div className="account-actions full">
+              <div className="account-actions">
                 {emailMsg && <p className="banner-ok">{emailMsg}</p>}
                 {emailError && <p className="banner-error">{emailError}</p>}
                 {!hasPassword && (
                   <p className="fineprint">
-                    Email changes require a password on the account. Set one via forgot password
-                    first.
+                    Email changes need a password. Set one via forgot password first.
                   </p>
                 )}
                 <button type="submit" className="btn-primary" disabled={emailBusy || !hasPassword}>
@@ -316,12 +302,9 @@ export default function AccountPage() {
               </div>
             </form>
           ) : (
-            <form className="section-fields account-form" onSubmit={verifyEmailChange}>
-              <label className="field settings-field full">
-                <span className="field-label-row">
-                  <span>Verification code</span>
-                  <span className="field-badge-slot" aria-hidden="true" />
-                </span>
+            <form className="account-form account-form-grid" onSubmit={verifyEmailChange}>
+              <label className="field">
+                <span>Verification code</span>
                 <input
                   type="text"
                   inputMode="numeric"
@@ -338,7 +321,7 @@ export default function AccountPage() {
                 />
                 <span className="field-hint">Sent to {newEmail.trim()}</span>
               </label>
-              <div className="account-actions full">
+              <div className="account-actions">
                 {emailMsg && <p className="banner-ok">{emailMsg}</p>}
                 {emailError && <p className="banner-error">{emailError}</p>}
                 <button
