@@ -420,12 +420,24 @@ class SyncService:
             )
         else:
             self._assert_parents_or_confirm(todos, allow_missing_parent=allow_missing_parent)
+            failed: List[WorkTodo] = []
             for todo in todos:
-                self._upsert_todo_and_time(
+                ok = self._upsert_todo_and_time(
                     todo,
                     date_str,
                     sync_result,
                     allow_missing_parent=allow_missing_parent,
+                )
+                if not ok:
+                    failed.append(todo)
+            if failed:
+                sync_result.planned_todos = failed
+                sync_result.todos_planned = len(failed)
+                sync_result.dry_run = True
+                sync_result.errors.append(
+                    f"Wrote {len(todos) - len(failed)} of {len(todos)} to-do(s). "
+                    f"{len(failed)} failed and remain for retry "
+                    f"(already-written subjects will be reused, not duplicated)."
                 )
 
         # 7. Export reports (group by feature for compatibility)
@@ -527,8 +539,10 @@ class SyncService:
         sync_result: SyncResult,
         *,
         allow_missing_parent: bool = False,
-    ) -> None:
-        """Creates or reuses a to-do issue and logs hours if not already logged for the day."""
+    ) -> bool:
+        """Creates or reuses a to-do issue and logs hours. Returns True on success."""
+        from app.redmine.client import RedmineAPIError
+
         subject = todo.subject[:255]
         parent_issue_id = self._ensure_todo_parent(
             todo, allow_missing_parent=allow_missing_parent
@@ -545,13 +559,15 @@ class SyncService:
             if existing:
                 issue_id = existing["id"]
                 logger.info(f"Reusing existing to-do #{issue_id}: {subject}")
-                sync_result.updated_issues.append(issue_id)
+                if issue_id not in sync_result.updated_issues:
+                    sync_result.updated_issues.append(issue_id)
             else:
                 new_issue = self.redmine_client.create_issue(
                     project_id=todo.project_id,
                     parent_issue_id=parent_issue_id,
                     subject=subject,
                     description=todo.description,
+                    for_parent=False,
                 )
                 issue_id = new_issue["id"]
                 sync_result.created_issues.append(issue_id)
@@ -566,7 +582,7 @@ class SyncService:
                     f"Issue #{issue_id} already has {already}h on {date_str}; skipping time log."
                 )
                 sync_result.hours_logged += already
-                return
+                return True
 
             hours_to_log = round(todo.hours - already, 2)
             if hours_to_log > 0:
@@ -580,11 +596,18 @@ class SyncService:
                 sync_result.hours_logged += hours_to_log + already
             else:
                 sync_result.hours_logged += already
+            return True
 
+        except RedmineAPIError as e:
+            error_msg = f"Failed to upsert to-do '{subject}': {e}"
+            logger.error(error_msg)
+            sync_result.errors.append(error_msg)
+            return False
         except Exception as e:
             error_msg = f"Failed to upsert to-do '{subject}': {e}"
             logger.error(error_msg)
             sync_result.errors.append(error_msg)
+            return False
 
     def apply_planned_todos(
         self,
@@ -593,24 +616,47 @@ class SyncService:
         *,
         allow_missing_parent: bool = False,
     ) -> SyncResult:
-        """Write an already-planned to-do list to Redmine (no fetch / AI re-run)."""
+        """Write an already-planned to-do list to Redmine (no fetch / AI re-run).
+
+        Idempotent: existing subjects are reused (no duplicate issues).
+        Partial failure: failed to-dos stay in planned_todos with dry_run=True for retry.
+        """
         self._assert_parents_or_confirm(todos, allow_missing_parent=allow_missing_parent)
         sync_result = SyncResult(
             date=date_str,
             processed_commits_count=0,
             todos_planned=len(todos),
-            planned_todos=todos,
+            planned_todos=[],
             dry_run=False,
         )
+        failed: List[WorkTodo] = []
         for todo in todos:
-            self._upsert_todo_and_time(
+            ok = self._upsert_todo_and_time(
                 todo,
                 date_str,
                 sync_result,
                 allow_missing_parent=allow_missing_parent,
             )
+            if not ok:
+                failed.append(todo)
+
+        written = len(todos) - len(failed)
+        if failed:
+            sync_result.planned_todos = failed
+            sync_result.todos_planned = len(failed)
+            sync_result.dry_run = True
+            sync_result.errors.append(
+                f"Wrote {written} of {len(todos)} to-do(s). "
+                f"{len(failed)} failed and remain in your plan — fix/retry Write all "
+                f"(already-written subjects will be reused, not duplicated)."
+            )
+        else:
+            sync_result.planned_todos = []
+            sync_result.todos_planned = 0
+
         logger.info(
-            f"Applied {len(todos)} planned to-dos for {date_str}: "
+            f"Applied planned to-dos for {date_str}: "
+            f"ok={written}, failed={len(failed)}, "
             f"created={len(sync_result.created_issues)}, "
             f"updated={len(sync_result.updated_issues)}, "
             f"hours={sync_result.hours_logged}."

@@ -163,18 +163,23 @@ export default function SyncPage() {
           allow_missing_parent: allowMissingParent,
         },
       });
-      const writtenUids = new Set(todosToWrite.map((t) => t._uid));
-      const remaining = todos.filter((t) => !writtenUids.has(t._uid));
-      if (remaining.length > 0 && data.dry_run === false) {
+
+      // Partial failure: server keeps failed rows in planned_todos with dry_run=true
+      if (data.dry_run && (data.planned_todos || []).length > 0) {
+        setResult(normalizeResult(data));
+        setDialog(null);
+        return;
+      }
+
+      // Full success for this batch — keep any to-dos that were not in the batch
+      const batchUids = new Set(todosToWrite.map((t) => t._uid));
+      const remainingOutsideBatch = todos.filter((t) => !batchUids.has(t._uid));
+      if (remainingOutsideBatch.length > 0) {
         setResult({
-          ...normalizeResult(data),
-          dry_run: true,
-          planned_todos: remaining,
-          todos_planned: remaining.length,
-          hours_logged: sumHours(remaining),
+          ...normalizeResult({ ...data, planned_todos: remainingOutsideBatch, dry_run: true }),
           errors: [
             ...(data.errors || []),
-            `Wrote ${todosToWrite.length} to-do(s) to Redmine. ${remaining.length} still in your plan.`,
+            `Wrote ${todosToWrite.length} to-do(s) to Redmine. ${remainingOutsideBatch.length} still in your plan.`,
           ],
         });
       } else {
