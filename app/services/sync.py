@@ -20,6 +20,10 @@ from app.database.connection import db_session
 from app.services.classifier import FeatureClassifierService
 from app.services.reporting import ReportingService
 from app.services.todo_planner import TodoPlannerService
+from app.services.feature_match import (
+    best_feature_for_commits,
+    match_feature_by_name,
+)
 
 
 class MissingParentError(Exception):
@@ -46,14 +50,15 @@ class MissingParentError(Exception):
 
 
 def _match_feature(features: List[RedmineFeature], name: str) -> Optional[RedmineFeature]:
-    """Case-insensitive exact match on feature subject."""
+    """Exact case-insensitive match, then fuzzy related name match."""
     target = (name or "").strip().lower()
     if not target:
         return None
     for feature in features:
         if feature.subject.strip().lower() == target:
             return feature
-    return None
+    hit = match_feature_by_name(name, features)
+    return hit[0] if hit else None
 
 
 class SyncService:
@@ -330,7 +335,9 @@ class SyncService:
                 feature_name = cached_feature_by_hash.get((commit.hash, commit.repository))
                 if feature_name:
                     features = _features_for_project(project.id)
-                    parent, feature_name = self._resolve_feature_parent(features, feature_name)
+                    parent, feature_name = self._resolve_feature_parent(
+                        features, feature_name, commits=[commit]
+                    )
                     classified.append(
                         ClassifiedCommit(
                             commit=commit,
@@ -377,7 +384,9 @@ class SyncService:
 
                 for commit in commits:
                     feature_name = hash_to_feature.get(commit.hash, self.settings.default_feature)
-                    parent, feature_name = self._resolve_feature_parent(features, feature_name)
+                    parent, feature_name = self._resolve_feature_parent(
+                        features, feature_name, commits=[commit]
+                    )
                     classified.append(
                         ClassifiedCommit(
                             commit=commit,
@@ -443,12 +452,26 @@ class SyncService:
         return sync_result
 
     def _resolve_feature_parent(
-        self, features: List[RedmineFeature], feature_name: str
+        self,
+        features: List[RedmineFeature],
+        feature_name: str,
+        commits: Optional[List[Commit]] = None,
     ) -> Tuple[Optional[RedmineFeature], str]:
-        """Match AI/cache feature name to a root Redmine feature; fall back to default."""
+        """Bind a feature label to a real Redmine parent; prefer related features over orphans."""
         parent = _match_feature(features, feature_name)
         if parent:
             return parent, parent.subject
+
+        # Cached/AI label may be default or stale — try relatedness from commit content
+        if commits:
+            related = best_feature_for_commits(commits, features)
+            if related:
+                feature, score = related
+                logger.info(
+                    f"Remapped '{feature_name}' → related feature '{feature.subject}' "
+                    f"(#{feature.id}, score {score:.1f})"
+                )
+                return feature, feature.subject
 
         default_name = self.settings.default_feature
         if (feature_name or "").strip().lower() != (default_name or "").strip().lower():

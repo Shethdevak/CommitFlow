@@ -5,6 +5,7 @@ from app.models.domain import (
     Commit,
     DiscoveredRepo,
     RedmineProject,
+    RedmineFeature,
 )
 from app.services.classifier import FeatureClassifierService
 from app.services.reporting import ReportingService
@@ -184,6 +185,42 @@ def test_todo_planner_one_per_commit_when_many():
     assert len(set(t.hours for t in todos)) > 1
 
 
+def test_related_feature_match_from_commit_paths(mock_redmine_features):
+    """Commit paths/messages should map to a related parent even without an exact AI label."""
+    from app.services.feature_match import best_feature_for_commits, resolve_related_feature
+
+    commit = Commit(
+        hash="abc",
+        message="feat(orders): add expired status handling",
+        author="u",
+        repository="r",
+        committed_date=datetime.now(),
+        changed_files=["src/pages/orders/OrderList.tsx", "src/api/orders.ts"],
+    )
+    # Add an Orders-like feature for relatedness
+    features = list(mock_redmine_features) + [
+        RedmineFeature(
+            id=2004,
+            subject="Orders Management",
+            description="Order list, status, payments",
+            project_id=101,
+        )
+    ]
+    hit = best_feature_for_commits([commit], features)
+    assert hit is not None
+    assert "order" in hit[0].subject.lower()
+
+    resolved = resolve_related_feature(
+        predicted_name="General Development",
+        commits=[commit],
+        features=features,
+        default_feature="General Development",
+        confidence=40,
+        confidence_threshold=80,
+    )
+    assert resolved == "Orders Management"
+
+
 def test_feature_classifier_resolution(mock_redmine_features):
     """Checks that predicted features are resolved using fuzzy matching and threshold safeguards."""
     response_json = """{
@@ -226,7 +263,8 @@ def test_feature_classifier_resolution(mock_redmine_features):
     assert len(result.selected_features) == 2
     assert result.selected_features[0].feature_name == "Payment"
     assert result.selected_features[0].confidence == 95
-    assert result.selected_features[1].feature_name == "General Development"
+    # Low confidence but exact/near feature name still maps to the real parent
+    assert result.selected_features[1].feature_name == "UI Design"
 
 
 def test_reporting_service(mock_commits):
