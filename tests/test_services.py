@@ -266,6 +266,13 @@ def test_sync_service_execution(mocker, mock_settings, mock_commits, mock_redmin
     mock_rm.get_projects.return_value = [mock_redmine_project]
     mock_rm.get_project.return_value = mock_redmine_project
     mock_rm.get_features.return_value = mock_redmine_features
+    mock_rm.find_feature_by_subject.side_effect = lambda project_id, subject: next(
+        (f for f in mock_redmine_features if f.subject.lower() == subject.lower()),
+        None,
+    )
+    mock_rm.ensure_feature.side_effect = lambda project_id, subject: next(
+        f for f in mock_redmine_features if f.subject.lower() == subject.lower()
+    )
     mock_rm.find_issue_by_subject.return_value = None
     mock_rm.create_issue.return_value = {"id": 12345}
     mock_rm.get_time_entries_for_issue_on_date.return_value = []
@@ -310,7 +317,7 @@ def test_sync_service_execution(mocker, mock_settings, mock_commits, mock_redmin
         classifier_service=classifier,
     )
 
-    result = sync_service.sync_date("2026-07-06")
+    result = sync_service.sync_date("2026-07-06", allow_missing_parent=True)
 
     assert result.processed_commits_count == 1
     # 1 commit → min 3 to-dos
@@ -321,6 +328,12 @@ def test_sync_service_execution(mocker, mock_settings, mock_commits, mock_redmin
 
     assert mock_rm.create_issue.call_count == 3
     assert mock_rm.create_time_entry.call_count == 3
+    for call in mock_rm.create_issue.call_args_list:
+        kwargs = call.kwargs
+        parent_id = kwargs.get("parent_issue_id")
+        if parent_id is None and len(call.args) >= 2:
+            parent_id = call.args[1]
+        assert parent_id, "to-dos must be created under a parent feature"
 
     db_repo = DatabaseRepository(db_session)
     cached = db_repo.get_cached_prediction(mock_commits[0].hash, mock_commits[0].repository)

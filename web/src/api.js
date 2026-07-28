@@ -47,6 +47,7 @@ export async function api(path, { method = "GET", body } = {}) {
     err.code = code;
     err.email = email;
     err.status = res.status;
+    err.detail = detail && typeof detail === "object" && !Array.isArray(detail) ? detail : null;
     throw err;
   }
   return data;

@@ -100,6 +100,44 @@ class RedmineClient:
 
         return features
 
+    def find_feature_by_subject(
+        self, project_id: int, subject: str
+    ) -> Optional[RedmineFeature]:
+        """Finds a root feature issue by subject (case-insensitive)."""
+        target = (subject or "").strip().lower()
+        if not target:
+            return None
+        for feature in self.get_features(project_id):
+            if feature.subject.strip().lower() == target:
+                return feature
+        return None
+
+    def ensure_feature(self, project_id: int, subject: str) -> RedmineFeature:
+        """Returns an existing root feature or creates one so to-dos always have a parent."""
+        name = (subject or "").strip() or "General Development"
+        existing = self.find_feature_by_subject(project_id, name)
+        if existing:
+            return existing
+
+        logger.warning(
+            f"Feature '{name}' not found as a root issue in project {project_id}; creating it."
+        )
+        issue = self.create_issue(
+            project_id=project_id,
+            parent_issue_id=None,
+            subject=name[:255],
+            description=(
+                "Parent feature for CommitFlow daily to-dos.\n\n"
+                f"Auto-created because '{name}' was missing as a root Redmine issue."
+            ),
+        )
+        return RedmineFeature(
+            id=int(issue["id"]),
+            subject=issue.get("subject") or name,
+            description=issue.get("description") or "",
+            project_id=project_id,
+        )
+
     def search_today_issue(self, project_id: int, parent_issue_id: int, date_str: str) -> Optional[Dict[str, Any]]:
         """Searches if a child issue (work log) exists for the given parent under today's date."""
         target_subject = f"Daily Development Update - {date_str}"

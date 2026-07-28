@@ -194,7 +194,7 @@ button:disabled { opacity: 0.55; cursor: wait; }
   box-shadow: 0 0 0 3px rgba(31, 111, 99, 0.12);
 }
 .field.compact { min-width: 180px; }
-.banner-error, .banner-ok {
+.banner-error, .banner-ok, .banner-warn {
   margin: 0;
   padding: 0.75rem 0.9rem;
   border-radius: 12px;
@@ -202,6 +202,12 @@ button:disabled { opacity: 0.55; cursor: wait; }
 }
 .banner-error { background: #fdeceb; color: var(--danger); }
 .banner-ok { background: #e8f6ec; color: var(--ok); }
+.banner-warn {
+  background: #fff4e5;
+  color: #8a4b08;
+  border: 1px solid rgba(196, 92, 38, 0.22);
+  margin: 0 0 1rem;
+}
 .fineprint { color: var(--muted); font-size: 0.8rem; }
 .login-meta-row {
   display: flex;
@@ -910,6 +916,11 @@ button:disabled { opacity: 0.55; cursor: wait; }
 .chip.soft {
   color: var(--ink-soft);
   background: rgba(20, 24, 28, 0.04);
+}
+.chip.warn {
+  color: #8a4b08;
+  background: #fff4e5;
+  border-color: rgba(196, 92, 38, 0.28);
 }
 .plan-bar {
   margin-top: 0.55rem;

@@ -11,6 +11,7 @@ from backend.services.user_settings import build_settings_mapping, ensure_user_p
 from app.config.settings import Settings
 from app.models.domain import WorkTodo, SyncResult
 from app.services.factory import build_sync_service
+from app.services.sync import MissingParentError
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
@@ -88,7 +89,13 @@ def run_sync(
         target = datetime.now(tz).strftime("%Y-%m-%d")
 
     try:
-        result = service.sync_date(target, dry_run=body.dry_run)
+        result = service.sync_date(
+            target,
+            dry_run=body.dry_run,
+            allow_missing_parent=body.allow_missing_parent,
+        )
+    except MissingParentError as e:
+        raise HTTPException(status_code=409, detail=e.as_detail()) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sync failed: {e}")
 
@@ -124,11 +131,17 @@ def commit_planned(
     if any(t.project_id <= 0 for t in todos):
         raise HTTPException(
             status_code=400,
-            detail="This preview is missing project IDs. Run dry-run again, then click Commit all.",
+            detail="This preview is missing project IDs. Run dry-run again, then write to Redmine.",
         )
 
     try:
-        result = service.apply_planned_todos(body.date, todos)
+        result = service.apply_planned_todos(
+            body.date,
+            todos,
+            allow_missing_parent=body.allow_missing_parent,
+        )
+    except MissingParentError as e:
+        raise HTTPException(status_code=409, detail=e.as_detail()) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Commit failed: {e}")
 

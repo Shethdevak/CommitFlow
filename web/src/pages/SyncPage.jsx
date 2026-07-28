@@ -29,6 +29,10 @@ function normalizeResult(data) {
   };
 }
 
+function todosMissingParent(list) {
+  return (list || []).filter((t) => !t.parent_issue_id);
+}
+
 export default function SyncPage() {
   const initial = loadSyncDeskState();
   const [dryRun, setDryRun] = useState(() => initial?.dryRun ?? true);
@@ -40,7 +44,15 @@ export default function SyncPage() {
     initial?.result ? normalizeResult(initial.result) : null
   );
 
-  /** @type {null | { type: 'commit-one' | 'commit-all' | 'delete', todo?: object }} */
+  /**
+   * @type {null | {
+   *   type: 'commit-one' | 'commit-all' | 'delete' | 'missing-parent',
+   *   todo?: object,
+   *   batch?: object[],
+   *   missing?: object[],
+   *   liveSync?: boolean,
+   * }}
+   */
   const [dialog, setDialog] = useState(null);
 
   useEffect(() => {
@@ -50,7 +62,7 @@ export default function SyncPage() {
   useEffect(() => {
     if (!dialog) return undefined;
     const onKey = (e) => {
-      if (e.key === "Escape" && !committing) setDialog(null);
+      if (e.key === "Escape" && !committing && !busy) setDialog(null);
     };
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -59,12 +71,13 @@ export default function SyncPage() {
       document.body.style.overflow = prevOverflow;
       window.removeEventListener("keydown", onKey);
     };
-  }, [dialog, committing]);
+  }, [dialog, committing, busy]);
 
   const todos = result?.planned_todos || [];
   const editable = Boolean(result?.dry_run && todos.length > 0);
   const canCommitAll = editable && !busy && !committing;
   const maxHours = todos.length ? Math.max(...todos.map((t) => Number(t.hours) || 0), 0.25) : 1;
+  const planMissingParents = todosMissingParent(todos);
 
   function updateTodos(nextTodos) {
     setResult((prev) => {
@@ -84,25 +97,59 @@ export default function SyncPage() {
     updateTodos(todos.map((t) => (t._uid === uid ? { ...t, hours } : t)));
   }
 
-  async function run() {
+  function requestWrite(batch, { todo = null } = {}) {
+    const missing = todosMissingParent(batch);
+    if (missing.length) {
+      setDialog({
+        type: "missing-parent",
+        batch,
+        missing,
+        todo: todo || null,
+        liveSync: false,
+      });
+      return;
+    }
+    if (batch.length === 1 && todo) {
+      setDialog({ type: "commit-one", todo });
+      return;
+    }
+    setDialog({ type: "commit-all" });
+  }
+
+  async function run({ allowMissingParent = false } = {}) {
     setBusy(true);
     setError("");
-    setResult(null);
+    if (!allowMissingParent) setResult(null);
     setDialog(null);
     try {
       const data = await api("/api/sync", {
         method: "POST",
-        body: { dry_run: dryRun, today: !date, date: date || null },
+        body: {
+          dry_run: dryRun,
+          today: !date,
+          date: date || null,
+          allow_missing_parent: allowMissingParent,
+        },
       });
       setResult(normalizeResult(data));
     } catch (err) {
-      setError(err.message);
+      if (err.code === "missing_parent" && !dryRun) {
+        setDialog({
+          type: "missing-parent",
+          liveSync: true,
+          missing: [],
+          batch: [],
+          detail: err.detail || null,
+        });
+      } else {
+        setError(err.message);
+      }
     } finally {
       setBusy(false);
     }
   }
 
-  async function writeTodos(todosToWrite) {
+  async function writeTodos(todosToWrite, { allowMissingParent = false } = {}) {
     if (!result || !todosToWrite.length) return;
 
     setCommitting(true);
@@ -113,9 +160,9 @@ export default function SyncPage() {
         body: {
           date: result.date,
           planned_todos: stripClientFields(todosToWrite),
+          allow_missing_parent: allowMissingParent,
         },
       });
-      // Keep remaining uncommitted preview rows when committing one / subset
       const writtenUids = new Set(todosToWrite.map((t) => t._uid));
       const remaining = todos.filter((t) => !writtenUids.has(t._uid));
       if (remaining.length > 0 && data.dry_run === false) {
@@ -125,7 +172,6 @@ export default function SyncPage() {
           planned_todos: remaining,
           todos_planned: remaining.length,
           hours_logged: sumHours(remaining),
-          // Keep a note that a write happened
           errors: [
             ...(data.errors || []),
             `Wrote ${todosToWrite.length} to-do(s) to Redmine. ${remaining.length} still in your plan.`,
@@ -136,8 +182,18 @@ export default function SyncPage() {
       }
       setDialog(null);
     } catch (err) {
-      setError(err.message);
-      setDialog(null);
+      if (err.code === "missing_parent") {
+        setDialog({
+          type: "missing-parent",
+          batch: todosToWrite,
+          missing: todosMissingParent(todosToWrite),
+          liveSync: false,
+          detail: err.detail || null,
+        });
+      } else {
+        setError(err.message);
+        setDialog(null);
+      }
     } finally {
       setCommitting(false);
     }
@@ -150,6 +206,14 @@ export default function SyncPage() {
       setDialog(null);
       return;
     }
+    if (dialog.type === "missing-parent") {
+      if (dialog.liveSync) {
+        run({ allowMissingParent: true });
+        return;
+      }
+      writeTodos(dialog.batch || [], { allowMissingParent: true });
+      return;
+    }
     if (dialog.type === "commit-one" && dialog.todo) {
       const fresh = todos.find((t) => t._uid === dialog.todo._uid) || dialog.todo;
       writeTodos([fresh]);
@@ -160,19 +224,37 @@ export default function SyncPage() {
     }
   }
 
+  const missingCount =
+    dialog?.type === "missing-parent"
+      ? dialog.missing?.length || dialog.detail?.count || 0
+      : 0;
+  const missingFeatures =
+    dialog?.type === "missing-parent"
+      ? dialog.detail?.feature_names ||
+        [...new Set((dialog.missing || []).map((t) => t.feature_name).filter(Boolean))]
+      : [];
+
   const dialogTitle =
     dialog?.type === "delete"
       ? "Remove this to-do?"
-      : dialog?.type === "commit-one"
-        ? "Write this to-do to Redmine?"
-        : "Write all to-dos to Redmine?";
+      : dialog?.type === "missing-parent"
+        ? "No parent feature matched"
+        : dialog?.type === "commit-one"
+          ? "Write this to-do to Redmine?"
+          : "Write all to-dos to Redmine?";
 
   const dialogCopy =
     dialog?.type === "delete"
       ? "It will leave your day plan. Hours are not auto-moved — edit another row if you want to reassign time."
-      : dialog?.type === "commit-one"
-        ? "Only this to-do and its hours will be written to Redmine. Other rows stay in your plan."
-        : "All remaining to-dos in this plan will be written to Redmine with your edited hours.";
+      : dialog?.type === "missing-parent"
+        ? `${missingCount || "Some"} to-do(s) are not linked to an existing parent feature in Redmine${
+            missingFeatures.length ? ` (${missingFeatures.join(", ")})` : ""
+          }. If you proceed, CommitFlow will create the missing parent feature(s) and nest the to-dos under them. Cancel leaves Redmine unchanged.`
+        : dialog?.type === "commit-one"
+          ? "Only this to-do and its hours will be written to Redmine. Other rows stay in your plan."
+          : "All remaining to-dos in this plan will be written to Redmine with your edited hours.";
+
+  const dialogBusy = committing || (dialog?.type === "missing-parent" && dialog.liveSync && busy);
 
   return (
     <div className="page-block reveal">
@@ -197,14 +279,14 @@ export default function SyncPage() {
         </label>
 
         <div className="control-actions">
-          <button type="button" className="btn-primary" onClick={run} disabled={busy || committing}>
+          <button type="button" className="btn-primary" onClick={() => run()} disabled={busy || committing}>
             {busy ? "Scanning…" : dryRun ? "Preview plan" : "Sync to Redmine"}
           </button>
           {canCommitAll && (
             <button
               type="button"
               className="btn-accent"
-              onClick={() => setDialog({ type: "commit-all" })}
+              onClick={() => requestWrite(todos)}
               disabled={committing}
             >
               Write all to Redmine
@@ -238,6 +320,13 @@ export default function SyncPage() {
             </article>
           </div>
 
+          {editable && planMissingParents.length > 0 && (
+            <p className="banner-warn" role="status">
+              {planMissingParents.length} to-do(s) have no matched parent feature in Redmine. Writing
+              will ask you to confirm before anything is created.
+            </p>
+          )}
+
           {editable && (
             <div className="commit-callout">
               <div>
@@ -250,7 +339,7 @@ export default function SyncPage() {
               <button
                 type="button"
                 className="btn-accent"
-                onClick={() => setDialog({ type: "commit-all" })}
+                onClick={() => requestWrite(todos)}
                 disabled={!canCommitAll}
               >
                 Write all to Redmine
@@ -323,6 +412,11 @@ export default function SyncPage() {
                       <span className={t.is_synthetic ? "chip soft" : "chip"}>
                         {t.is_synthetic ? "support" : "commit"}
                       </span>
+                      {!t.parent_issue_id && (
+                        <span className="chip warn" title="No matched parent feature in Redmine">
+                          no parent
+                        </span>
+                      )}
                     </div>
                     <div className="plan-bar" aria-hidden="true">
                       <span style={{ width: `${Math.max(8, (t.hours / maxHours) * 100)}%` }} />
@@ -333,7 +427,7 @@ export default function SyncPage() {
                           type="button"
                           className="btn-row-commit"
                           disabled={committing || !(Number(t.hours) > 0)}
-                          onClick={() => setDialog({ type: "commit-one", todo: t })}
+                          onClick={() => requestWrite([t], { todo: t })}
                           title="Write this to-do and hours to Redmine"
                           aria-label={`Write “${t.subject}” to Redmine`}
                         >
@@ -369,7 +463,7 @@ export default function SyncPage() {
           <div
             className="modal-backdrop"
             role="presentation"
-            onClick={() => !committing && setDialog(null)}
+            onClick={() => !dialogBusy && setDialog(null)}
           >
             <div
               className="modal-card"
@@ -378,18 +472,51 @@ export default function SyncPage() {
               aria-labelledby="plan-dialog-title"
               onClick={(e) => e.stopPropagation()}
             >
-              <p className={`modal-kicker ${dialog.type === "delete" ? "modal-kicker-danger" : ""}`}>
-                {dialog.type === "delete" ? "Remove from plan" : "Write to Redmine"}
+              <p
+                className={`modal-kicker ${
+                  dialog.type === "delete" || dialog.type === "missing-parent"
+                    ? "modal-kicker-danger"
+                    : ""
+                }`}
+              >
+                {dialog.type === "delete"
+                  ? "Remove from plan"
+                  : dialog.type === "missing-parent"
+                    ? "Safety check"
+                    : "Write to Redmine"}
               </p>
               <h2 id="plan-dialog-title">{dialogTitle}</h2>
               <p className="modal-copy">{dialogCopy}</p>
 
-              {dialog.todo && (
+              {dialog.todo && dialog.type !== "missing-parent" && (
                 <ul className="modal-preview">
                   <li>
                     <span>{dialog.todo.hours}h</span>
                     <p>{dialog.todo.subject}</p>
                   </li>
+                </ul>
+              )}
+
+              {dialog.type === "missing-parent" && (dialog.missing?.length > 0 || dialog.detail?.subjects) && (
+                <ul className="modal-preview">
+                  {(dialog.missing?.length
+                    ? dialog.missing.slice(0, 4)
+                    : (dialog.detail?.subjects || []).slice(0, 4).map((subject) => ({
+                        _uid: subject,
+                        subject,
+                        hours: "—",
+                      }))
+                  ).map((t) => (
+                    <li key={t._uid || t.subject}>
+                      <span>{typeof t.hours === "number" ? `${t.hours}h` : t.hours}</span>
+                      <p>{t.subject}</p>
+                    </li>
+                  ))}
+                  {(dialog.missing?.length || dialog.detail?.count || 0) > 4 && (
+                    <li className="more">
+                      +{(dialog.missing?.length || dialog.detail?.count) - 4} more
+                    </li>
+                  )}
                 </ul>
               )}
 
@@ -426,23 +553,29 @@ export default function SyncPage() {
                   type="button"
                   className="btn-secondary"
                   onClick={() => setDialog(null)}
-                  disabled={committing}
+                  disabled={dialogBusy}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  className={dialog.type === "delete" ? "btn-danger" : "btn-accent"}
+                  className={
+                    dialog.type === "delete" || dialog.type === "missing-parent"
+                      ? "btn-danger"
+                      : "btn-accent"
+                  }
                   onClick={confirmDialog}
-                  disabled={committing}
+                  disabled={dialogBusy}
                 >
-                  {committing
+                  {dialogBusy
                     ? "Writing to Redmine…"
                     : dialog.type === "delete"
                       ? "Yes, remove"
-                      : dialog.type === "commit-one"
-                        ? "Yes, write to Redmine"
-                        : "Yes, write all to Redmine"}
+                      : dialog.type === "missing-parent"
+                        ? "Proceed anyway"
+                        : dialog.type === "commit-one"
+                          ? "Yes, write to Redmine"
+                          : "Yes, write all to Redmine"}
                 </button>
               </div>
             </div>

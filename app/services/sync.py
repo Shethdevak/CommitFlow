@@ -1,5 +1,5 @@
 from datetime import datetime, time as datetime_time
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 from loguru import logger
 from app.config.settings import Settings
@@ -7,6 +7,7 @@ from app.models.domain import (
     Commit,
     DiscoveredRepo,
     ClassifiedCommit,
+    RedmineFeature,
     SyncResult,
     WorkTodo,
 )
@@ -19,6 +20,40 @@ from app.database.connection import db_session
 from app.services.classifier import FeatureClassifierService
 from app.services.reporting import ReportingService
 from app.services.todo_planner import TodoPlannerService
+
+
+class MissingParentError(Exception):
+    """Raised when to-dos would be written without a matched parent feature and user has not confirmed."""
+
+    def __init__(self, todos: List[WorkTodo]):
+        self.todos = list(todos)
+        features = sorted({(t.feature_name or "").strip() or "(unnamed)" for t in self.todos})
+        super().__init__(
+            f"{len(self.todos)} to-do(s) have no matched parent feature in Redmine "
+            f"({', '.join(features)}). Confirm to proceed."
+        )
+
+    def as_detail(self) -> dict:
+        return {
+            "code": "missing_parent",
+            "message": str(self),
+            "count": len(self.todos),
+            "feature_names": sorted(
+                {(t.feature_name or "").strip() or "(unnamed)" for t in self.todos}
+            ),
+            "subjects": [t.subject for t in self.todos[:8]],
+        }
+
+
+def _match_feature(features: List[RedmineFeature], name: str) -> Optional[RedmineFeature]:
+    """Case-insensitive exact match on feature subject."""
+    target = (name or "").strip().lower()
+    if not target:
+        return None
+    for feature in features:
+        if feature.subject.strip().lower() == target:
+            return feature
+    return None
 
 
 class SyncService:
@@ -169,7 +204,13 @@ class SyncService:
         logger.error(f"Unknown provider '{provider}' for repository '{repository}'.")
         return []
 
-    def sync_date(self, date_str: str, dry_run: bool = False) -> SyncResult:
+    def sync_date(
+        self,
+        date_str: str,
+        dry_run: bool = False,
+        *,
+        allow_missing_parent: bool = False,
+    ) -> SyncResult:
         """Runs the sync workflow for a specific date.
 
         When dry_run=True, fetches/classifies/plans but does not write to Redmine.
@@ -289,14 +330,7 @@ class SyncService:
                 feature_name = cached_feature_by_hash.get((commit.hash, commit.repository))
                 if feature_name:
                     features = _features_for_project(project.id)
-                    parent = next((f for f in features if f.subject == feature_name), None)
-                    if not parent and feature_name != self.settings.default_feature:
-                        parent = next(
-                            (f for f in features if f.subject == self.settings.default_feature),
-                            None,
-                        )
-                        if parent:
-                            feature_name = parent.subject
+                    parent, feature_name = self._resolve_feature_parent(features, feature_name)
                     classified.append(
                         ClassifiedCommit(
                             commit=commit,
@@ -343,14 +377,7 @@ class SyncService:
 
                 for commit in commits:
                     feature_name = hash_to_feature.get(commit.hash, self.settings.default_feature)
-                    parent = next((f for f in features if f.subject == feature_name), None)
-                    if not parent and feature_name != self.settings.default_feature:
-                        parent = next(
-                            (f for f in features if f.subject == self.settings.default_feature),
-                            None,
-                        )
-                        if parent:
-                            feature_name = parent.subject
+                    parent, feature_name = self._resolve_feature_parent(features, feature_name)
                     classified.append(
                         ClassifiedCommit(
                             commit=commit,
@@ -373,13 +400,24 @@ class SyncService:
         # 6. Create/update Redmine issues and log time entries (skipped in dry-run)
         if dry_run:
             sync_result.hours_logged = round(sum(t.hours for t in todos), 2)
+            missing_parents = [t for t in todos if not t.parent_issue_id]
+            if missing_parents:
+                logger.warning(
+                    f"DRY RUN: {len(missing_parents)} to-do(s) have no matched parent feature."
+                )
             logger.info(
                 f"DRY RUN: skipping Redmine writes. Would create/update "
                 f"{len(todos)} to-do(s) totaling {sync_result.hours_logged}h."
             )
         else:
+            self._assert_parents_or_confirm(todos, allow_missing_parent=allow_missing_parent)
             for todo in todos:
-                self._upsert_todo_and_time(todo, date_str, sync_result)
+                self._upsert_todo_and_time(
+                    todo,
+                    date_str,
+                    sync_result,
+                    allow_missing_parent=allow_missing_parent,
+                )
 
         # 7. Export reports (group by feature for compatibility)
         commits_by_feature: Dict[str, List[Commit]] = {}
@@ -404,15 +442,81 @@ class SyncService:
         )
         return sync_result
 
-    def _upsert_todo_and_time(self, todo: WorkTodo, date_str: str, sync_result: SyncResult) -> None:
+    def _resolve_feature_parent(
+        self, features: List[RedmineFeature], feature_name: str
+    ) -> Tuple[Optional[RedmineFeature], str]:
+        """Match AI/cache feature name to a root Redmine feature; fall back to default."""
+        parent = _match_feature(features, feature_name)
+        if parent:
+            return parent, parent.subject
+
+        default_name = self.settings.default_feature
+        if (feature_name or "").strip().lower() != (default_name or "").strip().lower():
+            parent = _match_feature(features, default_name)
+            if parent:
+                logger.info(
+                    f"Feature '{feature_name}' not found; using default '{parent.subject}' "
+                    f"(#{parent.id})."
+                )
+                return parent, parent.subject
+
+        logger.warning(
+            f"No root feature matched '{feature_name}' (or default '{default_name}'). "
+            "Writing will require confirmation to create the parent feature."
+        )
+        return None, (feature_name or default_name).strip() or default_name
+
+    def _assert_parents_or_confirm(
+        self, todos: List[WorkTodo], *, allow_missing_parent: bool
+    ) -> None:
+        missing = [t for t in todos if not t.parent_issue_id]
+        if missing and not allow_missing_parent:
+            raise MissingParentError(missing)
+
+    def _ensure_todo_parent(
+        self, todo: WorkTodo, *, allow_missing_parent: bool = False
+    ) -> Optional[int]:
+        """Resolve a parent feature id. Creates the feature when confirmed; never silent orphans."""
+        if todo.parent_issue_id:
+            return int(todo.parent_issue_id)
+
+        feature_name = (todo.feature_name or self.settings.default_feature).strip()
+        try:
+            feature = self.redmine_client.ensure_feature(todo.project_id, feature_name)
+            logger.info(
+                f"Resolved parent feature '{feature.subject}' #{feature.id} "
+                f"for to-do '{todo.subject[:60]}'"
+            )
+            return int(feature.id)
+        except Exception as e:
+            if allow_missing_parent:
+                logger.error(
+                    f"Could not create parent feature '{feature_name}' for "
+                    f"'{todo.subject[:60]}': {e}. Proceeding without parent (confirmed)."
+                )
+                return None
+            raise MissingParentError([todo]) from e
+
+    def _upsert_todo_and_time(
+        self,
+        todo: WorkTodo,
+        date_str: str,
+        sync_result: SyncResult,
+        *,
+        allow_missing_parent: bool = False,
+    ) -> None:
         """Creates or reuses a to-do issue and logs hours if not already logged for the day."""
         subject = todo.subject[:255]
+        parent_issue_id = self._ensure_todo_parent(
+            todo, allow_missing_parent=allow_missing_parent
+        )
+        todo.parent_issue_id = parent_issue_id
 
         try:
             existing = self.redmine_client.find_issue_by_subject(
                 project_id=todo.project_id,
                 subject=subject,
-                parent_issue_id=todo.parent_issue_id,
+                parent_issue_id=parent_issue_id,
             )
 
             if existing:
@@ -422,7 +526,7 @@ class SyncService:
             else:
                 new_issue = self.redmine_client.create_issue(
                     project_id=todo.project_id,
-                    parent_issue_id=todo.parent_issue_id,
+                    parent_issue_id=parent_issue_id,
                     subject=subject,
                     description=todo.description,
                 )
@@ -459,8 +563,15 @@ class SyncService:
             logger.error(error_msg)
             sync_result.errors.append(error_msg)
 
-    def apply_planned_todos(self, date_str: str, todos: List[WorkTodo]) -> SyncResult:
+    def apply_planned_todos(
+        self,
+        date_str: str,
+        todos: List[WorkTodo],
+        *,
+        allow_missing_parent: bool = False,
+    ) -> SyncResult:
         """Write an already-planned to-do list to Redmine (no fetch / AI re-run)."""
+        self._assert_parents_or_confirm(todos, allow_missing_parent=allow_missing_parent)
         sync_result = SyncResult(
             date=date_str,
             processed_commits_count=0,
@@ -469,7 +580,12 @@ class SyncService:
             dry_run=False,
         )
         for todo in todos:
-            self._upsert_todo_and_time(todo, date_str, sync_result)
+            self._upsert_todo_and_time(
+                todo,
+                date_str,
+                sync_result,
+                allow_missing_parent=allow_missing_parent,
+            )
         logger.info(
             f"Applied {len(todos)} planned to-dos for {date_str}: "
             f"created={len(sync_result.created_issues)}, "

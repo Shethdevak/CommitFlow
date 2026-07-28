@@ -79,7 +79,9 @@ def sync_command(
     service = get_sync_service()
     
     try:
-        result = service.sync_date(target_date, dry_run=dry_run)
+        result = service.sync_date(
+            target_date, dry_run=dry_run, allow_missing_parent=not dry_run
+        )
         if result.errors:
             rprint("[bold red]Sync completed with errors:[/bold red]")
             for err in result.errors:
@@ -297,7 +299,7 @@ def export_report(
     rprint(f"[bold blue]Exporting reports for {date_str}...[/bold blue]")
     try:
         # Resolves reports directly
-        result = service.sync_date(date_str)
+        result = service.sync_date(date_str, allow_missing_parent=True)
         rprint(f"[bold green]Reports generated under reports/ folder for {date_str}![/bold green]")
     except Exception as e:
         rprint(f"[bold red]Failed to export reports: {e}[/bold red]")

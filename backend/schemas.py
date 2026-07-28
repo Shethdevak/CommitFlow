@@ -223,6 +223,7 @@ class SyncRequest(BaseModel):
     date: Optional[str] = None  # YYYY-MM-DD; default today in user timezone
     dry_run: bool = True
     today: bool = True
+    allow_missing_parent: bool = False
 
 
 class PlannedTodoOut(BaseModel):
@@ -240,6 +241,8 @@ class CommitPlannedRequest(BaseModel):
     """Write a prior dry-run plan to Redmine without re-fetching commits."""
     date: str
     planned_todos: list[PlannedTodoOut]
+    # Required when any planned to-do lacks parent_issue_id (safety gate).
+    allow_missing_parent: bool = False
 
 
 class SyncResultOut(BaseModel):
