@@ -1,12 +1,31 @@
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
+import re
 import requests
 from loguru import logger
 from app.models.domain import RedmineProject, RedmineFeature
 from app.utils.helpers import with_retry
 
-# Prefer these trackers when creating child to-dos vs parent features
-_CHILD_TRACKER_NAMES = ("to-do", "todo", "task", "issue", "bug", "support", "development")
-_PARENT_TRACKER_NAMES = ("feature", "epic", "user story", "parent task", "parent")
+# Digiflux / CommitFlow convention:
+#   Feature  = parent (product area)
+#   To-Do    = child work item where time is logged
+# Never create worklogs as Support/Meeting, Bug, Planning, etc.
+_PARENT_TRACKER_KEYS = ("feature",)
+_CHILD_TRACKER_KEYS = ("todo", "todos")  # matches "To-Do", "Todo", "To Do"
+_BLOCKED_CHILD_KEYS = (
+    "support",
+    "meeting",
+    "supportmeeting",
+    "planning",
+    "backlog",
+    "bug",
+    "feature",
+    "epic",
+)
+
+
+def _tracker_key(name: str) -> str:
+    """Normalize tracker name: 'To-Do' → 'todo', 'Support/Meeting' → 'supportmeeting'."""
+    return re.sub(r"[^a-z0-9]+", "", (name or "").lower())
 
 
 class RedmineAPIError(Exception):
@@ -133,37 +152,62 @@ class RedmineClient:
     def _pick_tracker_id(
         self, project_id: int, *, for_parent: bool
     ) -> Optional[int]:
+        """Pick Feature tracker for parents, To-Do tracker for worklog children."""
         trackers = self.get_project_trackers(project_id)
         if not trackers:
             return None
-        preferred = _PARENT_TRACKER_NAMES if for_parent else _CHILD_TRACKER_NAMES
-        lowered = [(t, (t.get("name") or "").strip().lower()) for t in trackers]
-        for want in preferred:
-            for tracker, name in lowered:
-                if name == want or want in name:
+
+        keyed = [(t, _tracker_key(t.get("name") or "")) for t in trackers]
+        wanted = _PARENT_TRACKER_KEYS if for_parent else _CHILD_TRACKER_KEYS
+
+        for key in wanted:
+            for tracker, norm in keyed:
+                if norm == key:
                     return int(tracker["id"])
-        # Child: avoid Feature/Epic if possible
-        if not for_parent:
-            for tracker, name in lowered:
-                if not any(p in name for p in _PARENT_TRACKER_NAMES):
+
+        if for_parent:
+            for tracker, norm in keyed:
+                if norm.startswith("feature"):
                     return int(tracker["id"])
-        return int(trackers[0]["id"])
+            logger.error(
+                f"Project {project_id} has no Feature tracker "
+                f"(found: {[t.get('name') for t in trackers]})"
+            )
+            return None
+
+        # Children: To-Do only — never Support/Meeting / Bug / Planning
+        for tracker, norm in keyed:
+            if "todo" in norm and norm not in _BLOCKED_CHILD_KEYS:
+                return int(tracker["id"])
+
+        logger.error(
+            f"Project {project_id} has no To-Do tracker "
+            f"(found: {[t.get('name') for t in trackers]}). "
+            "Refusing to create Support/Meeting or other wrong trackers."
+        )
+        return None
 
     def get_features(self, project_id: int) -> List[RedmineFeature]:
-        """Fetches features of a project. Features are represented as Parent Issues (without parents themselves)."""
+        """Fetches Feature-tracker issues (parents for To-Do worklogs)."""
         features: List[RedmineFeature] = []
         offset = 0
         limit = 100
+        feature_tracker_id = self._pick_tracker_id(project_id, for_parent=True)
 
         try:
             while True:
-                params = {
+                params: Dict[str, Any] = {
                     "project_id": project_id,
-                    "parent_id": "!*",
                     "status_id": "*",
                     "offset": offset,
                     "limit": limit,
                 }
+                # Prefer Feature tracker only — not every root issue (Support/Meeting, Planning, …)
+                if feature_tracker_id:
+                    params["tracker_id"] = feature_tracker_id
+                else:
+                    params["parent_id"] = "!*"
+
                 response = self._request("GET", "issues.json", params=params)
                 data = response.json()
                 issue_list = data.get("issues", [])
@@ -171,14 +215,18 @@ class RedmineClient:
                     break
 
                 for issue in issue_list:
-                    features.append(
-                        RedmineFeature(
-                            id=issue["id"],
-                            subject=issue["subject"],
-                            description=issue.get("description", ""),
-                            project_id=project_id,
+                    tracker = (issue.get("tracker") or {}).get("name") or ""
+                    if feature_tracker_id or _tracker_key(tracker) == "feature" or tracker.lower().startswith(
+                        "feature"
+                    ):
+                        features.append(
+                            RedmineFeature(
+                                id=issue["id"],
+                                subject=issue["subject"],
+                                description=issue.get("description", ""),
+                                project_id=project_id,
+                            )
                         )
-                    )
 
                 if len(issue_list) < limit:
                     break
@@ -187,6 +235,10 @@ class RedmineClient:
             logger.error(f"Failed to fetch Features for project {project_id}: {e}")
             raise e
 
+        logger.info(
+            f"Loaded {len(features)} Feature parent(s) for project {project_id}"
+            + (f" (tracker_id={feature_tracker_id})" if feature_tracker_id else "")
+        )
         return features
 
     def find_feature_by_subject(
@@ -249,62 +301,48 @@ class RedmineClient:
         for_parent: bool = False,
         tracker_id: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Creates a new issue in Redmine, optionally as a child issue."""
+        """Creates a Feature (parent) or To-Do (child under Feature) in Redmine."""
         clean_subject = (subject or "").strip()[:255]
         clean_description = (description or "")[:60000]
+        # for_parent controls tracker: Feature vs To-Do.
+        # Never infer Feature just because parent_issue_id is missing.
+        chosen_tracker = tracker_id or self._pick_tracker_id(
+            project_id, for_parent=bool(for_parent)
+        )
+        if not chosen_tracker:
+            kind = "Feature" if for_parent else "To-Do"
+            raise RedmineAPIError(
+                400,
+                "issues.json",
+                f"Project {project_id} has no {kind} tracker. "
+                "CommitFlow will not create Support/Meeting or other wrong trackers.",
+            )
+
         payload: Dict[str, Any] = {
             "issue": {
                 "project_id": project_id,
                 "subject": clean_subject,
                 "description": clean_description,
+                "tracker_id": int(chosen_tracker),
             }
         }
-        chosen_tracker = tracker_id or self._pick_tracker_id(
-            project_id, for_parent=for_parent or not parent_issue_id
-        )
-        if chosen_tracker:
-            payload["issue"]["tracker_id"] = chosen_tracker
         if parent_issue_id:
             payload["issue"]["parent_issue_id"] = int(parent_issue_id)
 
         try:
             response = self._request("POST", "issues.json", json_data=payload)
             issue_data = response.json().get("issue", {})
+            tracker_name = (issue_data.get("tracker") or {}).get("name") or chosen_tracker
             logger.info(
-                f"Created Redmine issue #{issue_data.get('id')} - '{clean_subject}'"
-                + (f" under #{parent_issue_id}" if parent_issue_id else " (root)")
+                f"Created Redmine {tracker_name} #{issue_data.get('id')} - '{clean_subject}'"
+                + (f" under Feature #{parent_issue_id}" if parent_issue_id else " (Feature parent)")
             )
             return issue_data
         except RedmineAPIError as e:
-            # Parent/tracker mismatch — retry once as root-less only when creating a parent feature
-            # For children: retry without parent only if explicitly no parent wanted
-            if parent_issue_id and e.status_code == 422:
-                logger.warning(
-                    f"Create under parent #{parent_issue_id} rejected ({e}). "
-                    "Retrying with alternate child tracker if available."
-                )
-                trackers = self.get_project_trackers(project_id)
-                tried = {chosen_tracker}
-                for tracker in trackers:
-                    tid = int(tracker["id"])
-                    if tid in tried:
-                        continue
-                    name = (tracker.get("name") or "").lower()
-                    if any(p in name for p in _PARENT_TRACKER_NAMES):
-                        continue
-                    tried.add(tid)
-                    payload["issue"]["tracker_id"] = tid
-                    try:
-                        response = self._request("POST", "issues.json", json_data=payload)
-                        issue_data = response.json().get("issue", {})
-                        logger.info(
-                            f"Created Redmine issue #{issue_data.get('id')} "
-                            f"with tracker '{tracker.get('name')}' under #{parent_issue_id}"
-                        )
-                        return issue_data
-                    except RedmineAPIError:
-                        continue
-            logger.error(f"Failed to create Redmine issue '{clean_subject}': {e}")
+            logger.error(
+                f"Failed to create Redmine issue '{clean_subject}' "
+                f"(tracker_id={chosen_tracker}, parent={parent_issue_id}): {e}"
+            )
             raise
 
     def update_issue(self, issue_id: int, description: str) -> None:

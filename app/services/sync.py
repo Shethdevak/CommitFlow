@@ -495,8 +495,28 @@ class SyncService:
                 )
                 return parent, parent.subject
 
+        # Last resort while planning: any existing Feature (never invent Support/Meeting)
+        if features:
+            if commits:
+                weak = best_feature_for_commits(commits, features, min_score=0)
+                if weak:
+                    feature, score = weak
+                    logger.warning(
+                        f"No strong Feature match for '{feature_name}'; "
+                        f"using related '{feature.subject}' #{feature.id} "
+                        f"(score {score:.1f})"
+                    )
+                    return feature, feature.subject
+            pick = features[0]
+            logger.warning(
+                f"No Feature matched '{feature_name}'; using existing "
+                f"'{pick.subject}' #{pick.id} (will not use Support/Meeting)."
+            )
+            return pick, pick.subject
+
         logger.warning(
-            f"No root feature matched '{feature_name}' (or default '{default_name}'). "
+            f"No Feature issues in project for '{feature_name}' "
+            f"(or default '{default_name}'). "
             "Writing will require confirmation to create the parent feature."
         )
         return None, (feature_name or default_name).strip() or default_name
@@ -508,10 +528,61 @@ class SyncService:
         if missing and not allow_missing_parent:
             raise MissingParentError(missing)
 
+    def _pick_existing_feature_parent(
+        self,
+        project_id: int,
+        feature_name: str,
+        todo: Optional[WorkTodo] = None,
+    ) -> Optional[RedmineFeature]:
+        """
+        Pick an existing Feature tracker issue to parent a To-Do.
+        Used when Feature create is forbidden — never Support/Meeting.
+        """
+        features = self.redmine_client.get_features(project_id)
+        if not features:
+            return None
+
+        hit = match_feature_by_name(feature_name, features, min_score=45)
+        if hit:
+            return hit[0]
+
+        commits = list(todo.commits) if todo and todo.commits else []
+        if commits:
+            related = best_feature_for_commits(commits, features, min_score=0)
+            if related:
+                return related[0]
+
+        if todo and (todo.subject or todo.description):
+            from datetime import timezone
+
+            probe = Commit(
+                hash="fallback-probe",
+                message=todo.subject or "",
+                description=todo.description or "",
+                author="",
+                repository="",
+                committed_date=datetime.now(timezone.utc),
+            )
+            related = best_feature_for_commits([probe], features, min_score=0)
+            if related:
+                return related[0]
+
+        default_hit = match_feature_by_name(
+            self.settings.default_feature, features, min_score=80
+        )
+        if default_hit:
+            return default_hit[0]
+
+        return features[0]
+
     def _ensure_todo_parent(
         self, todo: WorkTodo, *, allow_missing_parent: bool = False
     ) -> Optional[int]:
-        """Resolve a parent feature id. Creates the feature when confirmed; never silent orphans."""
+        """
+        Resolve a Feature parent for a To-Do.
+        Prefer create when missing; if create fails (e.g. no rights), attach under
+        any related existing Feature — never Support/Meeting, never orphan when a Feature exists.
+        """
         if todo.parent_issue_id:
             return int(todo.parent_issue_id)
 
@@ -522,12 +593,27 @@ class SyncService:
                 f"Resolved parent feature '{feature.subject}' #{feature.id} "
                 f"for to-do '{todo.subject[:60]}'"
             )
+            todo.feature_name = feature.subject
             return int(feature.id)
         except Exception as e:
+            fallback = self._pick_existing_feature_parent(
+                todo.project_id, feature_name, todo
+            )
+            if fallback:
+                logger.warning(
+                    f"Cannot create Feature '{feature_name}' ({e}). "
+                    f"Placing To-Do under existing Feature "
+                    f"'{fallback.subject}' #{fallback.id} "
+                    "(not Support/Meeting)."
+                )
+                todo.feature_name = fallback.subject
+                return int(fallback.id)
+
             if allow_missing_parent:
                 logger.error(
-                    f"Could not create parent feature '{feature_name}' for "
-                    f"'{todo.subject[:60]}': {e}. Proceeding without parent (confirmed)."
+                    f"No Feature exists and cannot create '{feature_name}' for "
+                    f"'{todo.subject[:60]}': {e}. Refusing orphan To-Do "
+                    "(would risk wrong tracker)."
                 )
                 return None
             raise MissingParentError([todo]) from e
@@ -548,6 +634,15 @@ class SyncService:
             todo, allow_missing_parent=allow_missing_parent
         )
         todo.parent_issue_id = parent_issue_id
+
+        if not parent_issue_id:
+            error_msg = (
+                f"Skipped To-Do '{subject}': no Feature parent available and "
+                "Feature create is not allowed. Will not create Support/Meeting or orphan issues."
+            )
+            logger.error(error_msg)
+            sync_result.errors.append(error_msg)
+            return False
 
         try:
             existing = self.redmine_client.find_issue_by_subject(
