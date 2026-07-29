@@ -56,6 +56,13 @@ def _issue_tracker_name(issue: Dict[str, Any]) -> str:
     return ((issue.get("tracker") or {}).get("name") or "").strip()
 
 
+def _issue_parent_id(issue: Dict[str, Any]) -> Optional[int]:
+    parent = issue.get("parent")
+    if isinstance(parent, dict) and parent.get("id") is not None:
+        return int(parent["id"])
+    return None
+
+
 class RedmineAPIError(Exception):
     """Redmine HTTP error with parsed validation details (do not retry 4xx)."""
 
@@ -115,6 +122,69 @@ class RedmineClient:
             logger.warning(
                 f"Could not set assignee/% Done on issue #{issue_id}: {e}"
             )
+
+    def ensure_todo_under_feature(self, issue_id: int, feature_parent_id: int) -> None:
+        """
+        Move a To-Do under the given Feature parent.
+        Fixes legacy issues that were wrongly parented under Support/Meeting (e.g. #36408).
+        """
+        feature = self.assert_feature_parent(int(feature_parent_id))
+        if not feature:
+            raise RedmineAPIError(
+                400,
+                f"issues/{issue_id}.json",
+                f"Cannot attach To-Do #{issue_id}: #{feature_parent_id} is not a Feature.",
+            )
+
+        issue = self.get_issue(int(issue_id))
+        if not issue:
+            raise RedmineAPIError(
+                404, f"issues/{issue_id}.json", f"Issue #{issue_id} not found."
+            )
+        if not self.is_todo_issue(issue):
+            raise RedmineAPIError(
+                400,
+                f"issues/{issue_id}.json",
+                f"Issue #{issue_id} is not a To-Do tracker.",
+            )
+
+        current_parent = _issue_parent_id(issue)
+        if current_parent == int(feature_parent_id):
+            return
+
+        if current_parent:
+            current = self.get_issue(current_parent)
+            current_tracker = _issue_tracker_name(current) if current else "?"
+            if current and not self.is_feature_issue(current):
+                logger.warning(
+                    f"Reparenting To-Do #{issue_id} away from "
+                    f"{current_tracker} #{current_parent} "
+                    f"→ Feature #{feature_parent_id} '{feature.subject}'"
+                )
+            else:
+                logger.info(
+                    f"Moving To-Do #{issue_id} parent "
+                    f"#{current_parent} → Feature #{feature_parent_id}"
+                )
+        else:
+            logger.info(
+                f"Attaching orphan To-Do #{issue_id} under Feature #{feature_parent_id}"
+            )
+
+        try:
+            self._request(
+                "PUT",
+                f"issues/{int(issue_id)}.json",
+                json_data={"issue": {"parent_issue_id": int(feature_parent_id)}},
+            )
+        except RedmineAPIError:
+            raise
+        except Exception as e:
+            raise RedmineAPIError(
+                500,
+                f"issues/{issue_id}.json",
+                f"Failed to reparent To-Do #{issue_id} under Feature #{feature_parent_id}: {e}",
+            ) from e
 
     @with_retry(
         exceptions=(
@@ -549,15 +619,15 @@ class RedmineClient:
                 break
 
             for issue in issues:
-                if self._subjects_match(issue.get("subject", ""), target):
-                    # Never reuse Support/Meeting (or other non-To-Do) for worklogs
-                    if require_todo and not _is_todo_tracker(_issue_tracker_name(issue)):
-                        logger.warning(
-                            f"Ignoring subject match #{issue.get('id')} "
-                            f"tracker={_issue_tracker_name(issue)!r} — not a To-Do"
-                        )
-                        continue
-                    return issue
+                if not self._subjects_match(issue.get("subject", ""), target):
+                    continue
+                if require_todo and not _is_todo_tracker(_issue_tracker_name(issue)):
+                    logger.warning(
+                        f"Ignoring subject match #{issue.get('id')} "
+                        f"tracker={_issue_tracker_name(issue)!r} — not a To-Do"
+                    )
+                    continue
+                return issue
 
             if len(issues) < limit:
                 break

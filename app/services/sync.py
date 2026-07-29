@@ -680,11 +680,26 @@ class SyncService:
                     logger.error(error_msg)
                     sync_result.errors.append(error_msg)
                     return False
-                issue_id = existing["id"]
+                issue_id = int(existing["id"])
                 logger.info(f"Reusing existing to-do #{issue_id}: {subject}")
+                try:
+                    # Critical: old runs parented To-Dos under Support/Meeting (#36408).
+                    self.redmine_client.ensure_todo_under_feature(
+                        issue_id, parent_issue_id
+                    )
+                    self.redmine_client.ensure_todo_assignment(issue_id)
+                except Exception as reparent_err:
+                    logger.warning(
+                        f"Could not reparent/fix To-Do #{issue_id} "
+                        f"(likely under Support/Meeting): {reparent_err}. "
+                        "Creating a new To-Do under the Feature instead."
+                    )
+                    existing = None
+
+            if existing:
+                issue_id = int(existing["id"])
                 if issue_id not in sync_result.updated_issues:
                     sync_result.updated_issues.append(issue_id)
-                self.redmine_client.ensure_todo_assignment(issue_id)
             else:
                 new_issue = self.redmine_client.create_issue(
                     project_id=todo.project_id,
@@ -693,10 +708,10 @@ class SyncService:
                     description=todo.description,
                     for_parent=False,
                 )
-                issue_id = new_issue["id"]
+                issue_id = int(new_issue["id"])
                 sync_result.created_issues.append(issue_id)
-                # Belt-and-suspenders if create ignored assignee/done_ratio
                 self.redmine_client.ensure_todo_assignment(issue_id)
+                self.redmine_client.ensure_todo_under_feature(issue_id, parent_issue_id)
 
             # Avoid duplicate time entries on re-sync
             existing_entries = self.redmine_client.get_time_entries_for_issue_on_date(
