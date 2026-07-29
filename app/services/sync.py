@@ -684,6 +684,7 @@ class SyncService:
                 logger.info(f"Reusing existing to-do #{issue_id}: {subject}")
                 if issue_id not in sync_result.updated_issues:
                     sync_result.updated_issues.append(issue_id)
+                self.redmine_client.ensure_todo_assignment(issue_id)
             else:
                 new_issue = self.redmine_client.create_issue(
                     project_id=todo.project_id,
@@ -694,6 +695,8 @@ class SyncService:
                 )
                 issue_id = new_issue["id"]
                 sync_result.created_issues.append(issue_id)
+                # Belt-and-suspenders if create ignored assignee/done_ratio
+                self.redmine_client.ensure_todo_assignment(issue_id)
 
             # Avoid duplicate time entries on re-sync
             existing_entries = self.redmine_client.get_time_entries_for_issue_on_date(

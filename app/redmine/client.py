@@ -76,6 +76,45 @@ class RedmineClient:
             "Content-Type": "application/json",
         }
         self._trackers_by_project: Dict[int, List[Dict[str, Any]]] = {}
+        self._current_user_id: Optional[int] = None
+
+    def get_current_user_id(self) -> Optional[int]:
+        """Redmine user id for this API key ('me'). Cached per client instance."""
+        if self._current_user_id is not None:
+            return self._current_user_id
+        try:
+            response = self._request("GET", "users/current.json")
+            user = response.json().get("user") or {}
+            uid = user.get("id")
+            if uid is not None:
+                self._current_user_id = int(uid)
+                logger.info(
+                    f"Redmine current user #{self._current_user_id} "
+                    f"({user.get('login') or user.get('firstname') or 'me'})"
+                )
+                return self._current_user_id
+        except Exception as e:
+            logger.warning(f"Could not resolve Redmine current user (assignee): {e}")
+        return None
+
+    def ensure_todo_assignment(self, issue_id: int) -> None:
+        """Force assignee = me and % Done = 100 on a worklog To-Do."""
+        issue_fields: Dict[str, Any] = {"done_ratio": 100}
+        uid = self.get_current_user_id()
+        if uid is not None:
+            issue_fields["assigned_to_id"] = uid
+        try:
+            self._request(
+                "PUT", f"issues/{int(issue_id)}.json", json_data={"issue": issue_fields}
+            )
+            logger.info(
+                f"Set issue #{issue_id} assignee="
+                f"{uid if uid is not None else 'unchanged'} done_ratio=100"
+            )
+        except Exception as e:
+            logger.warning(
+                f"Could not set assignee/% Done on issue #{issue_id}: {e}"
+            )
 
     @with_retry(
         exceptions=(
@@ -413,6 +452,13 @@ class RedmineClient:
         }
         if parent_issue_id:
             payload["issue"]["parent_issue_id"] = int(parent_issue_id)
+
+        # Worklog To-Dos: always assign to me and mark 100% done
+        if not for_parent:
+            payload["issue"]["done_ratio"] = 100
+            uid = self.get_current_user_id()
+            if uid is not None:
+                payload["issue"]["assigned_to_id"] = uid
 
         try:
             response = self._request("POST", "issues.json", json_data=payload)
