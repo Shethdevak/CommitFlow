@@ -34,7 +34,7 @@ class RedmineClient:
         exceptions=(
             requests.ConnectionError,
             requests.Timeout,
-            requests.ChunkedEncodingError,
+            requests.exceptions.ChunkedEncodingError,
         )
     )
     def _request(
