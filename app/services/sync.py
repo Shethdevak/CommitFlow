@@ -583,31 +583,50 @@ class SyncService:
         Prefer create when missing; if create fails (e.g. no rights), attach under
         any related existing Feature — never Support/Meeting, never orphan when a Feature exists.
         """
-        if todo.parent_issue_id:
-            return int(todo.parent_issue_id)
-
         feature_name = (todo.feature_name or self.settings.default_feature).strip()
+
+        # Never trust a cached parent without verifying it is Feature (not Support/Meeting).
+        if todo.parent_issue_id:
+            verified = self.redmine_client.assert_feature_parent(int(todo.parent_issue_id))
+            if verified:
+                todo.feature_name = verified.subject or todo.feature_name
+                return int(verified.id)
+            logger.warning(
+                f"Cached parent #{todo.parent_issue_id} is not a Feature; "
+                "re-resolving to a real Feature parent."
+            )
+            todo.parent_issue_id = None
+
         try:
             feature = self.redmine_client.ensure_feature(todo.project_id, feature_name)
-            logger.info(
-                f"Resolved parent feature '{feature.subject}' #{feature.id} "
-                f"for to-do '{todo.subject[:60]}'"
+            # Double-check created/found issue is Feature
+            verified = self.redmine_client.assert_feature_parent(int(feature.id))
+            if verified:
+                logger.info(
+                    f"Resolved parent feature '{verified.subject}' #{verified.id} "
+                    f"for to-do '{todo.subject[:60]}'"
+                )
+                todo.feature_name = verified.subject
+                return int(verified.id)
+            raise RuntimeError(
+                f"ensure_feature returned non-Feature #{feature.id} "
+                f"'{feature.subject}'"
             )
-            todo.feature_name = feature.subject
-            return int(feature.id)
         except Exception as e:
             fallback = self._pick_existing_feature_parent(
                 todo.project_id, feature_name, todo
             )
             if fallback:
-                logger.warning(
-                    f"Cannot create Feature '{feature_name}' ({e}). "
-                    f"Placing To-Do under existing Feature "
-                    f"'{fallback.subject}' #{fallback.id} "
-                    "(not Support/Meeting)."
-                )
-                todo.feature_name = fallback.subject
-                return int(fallback.id)
+                verified = self.redmine_client.assert_feature_parent(int(fallback.id))
+                if verified:
+                    logger.warning(
+                        f"Cannot create Feature '{feature_name}' ({e}). "
+                        f"Placing To-Do under existing Feature "
+                        f"'{verified.subject}' #{verified.id} "
+                        "(not Support/Meeting)."
+                    )
+                    todo.feature_name = verified.subject
+                    return int(verified.id)
 
             if allow_missing_parent:
                 logger.error(
@@ -652,6 +671,15 @@ class SyncService:
             )
 
             if existing:
+                if not self.redmine_client.is_todo_issue(existing):
+                    error_msg = (
+                        f"Skipped '{subject}': existing issue #{existing.get('id')} is "
+                        f"{((existing.get('tracker') or {}).get('name'))!r}, not To-Do. "
+                        "Will not log time on Support/Meeting."
+                    )
+                    logger.error(error_msg)
+                    sync_result.errors.append(error_msg)
+                    return False
                 issue_id = existing["id"]
                 logger.info(f"Reusing existing to-do #{issue_id}: {subject}")
                 if issue_id not in sync_result.updated_issues:

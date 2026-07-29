@@ -11,6 +11,16 @@ from app.utils.helpers import with_retry
 # Never create worklogs as Support/Meeting, Bug, Planning, etc.
 _PARENT_TRACKER_KEYS = ("feature",)
 _CHILD_TRACKER_KEYS = ("todo", "todos")  # matches "To-Do", "Todo", "To Do"
+_BLOCKED_PARENT_KEYS = (
+    "support",
+    "meeting",
+    "supportmeeting",
+    "planning",
+    "backlog",
+    "bug",
+    "todo",
+    "todos",
+)
 _BLOCKED_CHILD_KEYS = (
     "support",
     "meeting",
@@ -26,6 +36,24 @@ _BLOCKED_CHILD_KEYS = (
 def _tracker_key(name: str) -> str:
     """Normalize tracker name: 'To-Do' → 'todo', 'Support/Meeting' → 'supportmeeting'."""
     return re.sub(r"[^a-z0-9]+", "", (name or "").lower())
+
+
+def _is_feature_tracker(name: str) -> bool:
+    key = _tracker_key(name)
+    if not key or key in _BLOCKED_PARENT_KEYS:
+        return False
+    return key == "feature" or key.startswith("feature")
+
+
+def _is_todo_tracker(name: str) -> bool:
+    key = _tracker_key(name)
+    if not key or key in _BLOCKED_CHILD_KEYS:
+        return False
+    return key in _CHILD_TRACKER_KEYS or ("todo" in key and key not in _BLOCKED_CHILD_KEYS)
+
+
+def _issue_tracker_name(issue: Dict[str, Any]) -> str:
+    return ((issue.get("tracker") or {}).get("name") or "").strip()
 
 
 class RedmineAPIError(Exception):
@@ -215,18 +243,23 @@ class RedmineClient:
                     break
 
                 for issue in issue_list:
-                    tracker = (issue.get("tracker") or {}).get("name") or ""
-                    if feature_tracker_id or _tracker_key(tracker) == "feature" or tracker.lower().startswith(
-                        "feature"
-                    ):
-                        features.append(
-                            RedmineFeature(
-                                id=issue["id"],
-                                subject=issue["subject"],
-                                description=issue.get("description", ""),
-                                project_id=project_id,
-                            )
+                    tracker = _issue_tracker_name(issue)
+                    # Always validate client-side — Redmine tracker_id filter is not enough.
+                    # Previously Support/Meeting roots (e.g. #36408 "meeting") leaked in as "features".
+                    if not _is_feature_tracker(tracker):
+                        logger.debug(
+                            f"Skipping non-Feature issue #{issue.get('id')} "
+                            f"tracker={tracker!r} subject={issue.get('subject', '')[:60]!r}"
                         )
+                        continue
+                    features.append(
+                        RedmineFeature(
+                            id=issue["id"],
+                            subject=issue["subject"],
+                            description=issue.get("description", ""),
+                            project_id=project_id,
+                        )
+                    )
 
                 if len(issue_list) < limit:
                     break
@@ -240,6 +273,41 @@ class RedmineClient:
             + (f" (tracker_id={feature_tracker_id})" if feature_tracker_id else "")
         )
         return features
+
+    def get_issue(self, issue_id: int) -> Optional[Dict[str, Any]]:
+        """Fetch a single Redmine issue by id."""
+        try:
+            response = self._request("GET", f"issues/{int(issue_id)}.json")
+            return response.json().get("issue")
+        except Exception as e:
+            logger.error(f"Failed to fetch issue #{issue_id}: {e}")
+            return None
+
+    def is_feature_issue(self, issue: Dict[str, Any]) -> bool:
+        return _is_feature_tracker(_issue_tracker_name(issue))
+
+    def is_todo_issue(self, issue: Dict[str, Any]) -> bool:
+        return _is_todo_tracker(_issue_tracker_name(issue))
+
+    def assert_feature_parent(self, issue_id: int) -> Optional[RedmineFeature]:
+        """Return the issue only if it is a Feature tracker parent; else None."""
+        issue = self.get_issue(issue_id)
+        if not issue:
+            return None
+        tracker = _issue_tracker_name(issue)
+        if not self.is_feature_issue(issue):
+            logger.warning(
+                f"Rejecting parent #{issue_id} tracker={tracker!r} "
+                f"subject={issue.get('subject', '')[:60]!r} — not a Feature "
+                "(Support/Meeting and similar cannot parent CommitFlow To-Dos)."
+            )
+            return None
+        return RedmineFeature(
+            id=int(issue["id"]),
+            subject=issue.get("subject") or "",
+            description=issue.get("description") or "",
+            project_id=int((issue.get("project") or {}).get("id") or 0),
+        )
 
     def find_feature_by_subject(
         self, project_id: int, subject: str
@@ -318,6 +386,23 @@ class RedmineClient:
                 "CommitFlow will not create Support/Meeting or other wrong trackers.",
             )
 
+        if not for_parent:
+            if not parent_issue_id:
+                raise RedmineAPIError(
+                    400,
+                    "issues.json",
+                    "Refusing To-Do without a Feature parent_issue_id.",
+                )
+            # Critical: child under Support/Meeting becomes Support/Meeting in Redmine.
+            parent = self.assert_feature_parent(int(parent_issue_id))
+            if not parent:
+                raise RedmineAPIError(
+                    400,
+                    "issues.json",
+                    f"Parent #{parent_issue_id} is not a Feature tracker "
+                    "(e.g. Support/Meeting). Refusing to create child To-Do under it.",
+                )
+
         payload: Dict[str, Any] = {
             "issue": {
                 "project_id": project_id,
@@ -332,7 +417,25 @@ class RedmineClient:
         try:
             response = self._request("POST", "issues.json", json_data=payload)
             issue_data = response.json().get("issue", {})
-            tracker_name = (issue_data.get("tracker") or {}).get("name") or chosen_tracker
+            tracker_name = _issue_tracker_name(issue_data) or str(chosen_tracker)
+
+            if for_parent:
+                if not _is_feature_tracker(tracker_name):
+                    raise RedmineAPIError(
+                        422,
+                        "issues.json",
+                        f"Created issue #{issue_data.get('id')} as tracker "
+                        f"{tracker_name!r}, expected Feature. Aborting.",
+                    )
+            elif not _is_todo_tracker(tracker_name):
+                raise RedmineAPIError(
+                    422,
+                    "issues.json",
+                    f"Created issue #{issue_data.get('id')} as tracker "
+                    f"{tracker_name!r}, expected To-Do. "
+                    "Will not log time on Support/Meeting.",
+                )
+
             logger.info(
                 f"Created Redmine {tracker_name} #{issue_data.get('id')} - '{clean_subject}'"
                 + (f" under Feature #{parent_issue_id}" if parent_issue_id else " (Feature parent)")
@@ -375,6 +478,7 @@ class RedmineClient:
         subject: str,
         *,
         parent_issue_id: Optional[int] = None,
+        require_todo: bool = True,
         limit_pages: int = 20,
     ) -> Optional[Dict[str, Any]]:
         offset = 0
@@ -400,6 +504,13 @@ class RedmineClient:
 
             for issue in issues:
                 if self._subjects_match(issue.get("subject", ""), target):
+                    # Never reuse Support/Meeting (or other non-To-Do) for worklogs
+                    if require_todo and not _is_todo_tracker(_issue_tracker_name(issue)):
+                        logger.warning(
+                            f"Ignoring subject match #{issue.get('id')} "
+                            f"tracker={_issue_tracker_name(issue)!r} — not a To-Do"
+                        )
+                        continue
                     return issue
 
             if len(issues) < limit:
@@ -413,8 +524,10 @@ class RedmineClient:
         project_id: int,
         subject: str,
         parent_issue_id: Optional[int] = None,
+        *,
+        require_todo: bool = True,
     ) -> Optional[Dict[str, Any]]:
-        """Finds an issue by subject — prefer under parent, then anywhere in the project."""
+        """Finds a To-Do by subject — prefer under Feature parent, then project-wide To-Dos only."""
         target = (subject or "").strip()
         if not target:
             return None
@@ -422,16 +535,21 @@ class RedmineClient:
         try:
             if parent_issue_id:
                 found = self._scan_issues_for_subject(
-                    project_id, target, parent_issue_id=parent_issue_id
+                    project_id,
+                    target,
+                    parent_issue_id=parent_issue_id,
+                    require_todo=require_todo,
                 )
                 if found:
                     return found
 
-            # Idempotency: already created (maybe under another parent / open)
-            found = self._scan_issues_for_subject(project_id, target, parent_issue_id=None)
+            # Idempotency: already created under another Feature — To-Do only
+            found = self._scan_issues_for_subject(
+                project_id, target, parent_issue_id=None, require_todo=require_todo
+            )
             if found:
                 logger.info(
-                    f"Found existing issue #{found.get('id')} by subject "
+                    f"Found existing To-Do #{found.get('id')} by subject "
                     f"(project-wide) for '{target[:80]}'"
                 )
             return found
