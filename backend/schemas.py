@@ -224,6 +224,8 @@ class SyncRequest(BaseModel):
     dry_run: bool = True
     today: bool = True
     allow_missing_parent: bool = False
+    # Temporary day goal for this preview/sync only — does not update Integrations.
+    daily_hour_goal: Optional[float] = Field(default=None, ge=0.25, le=24)
 
 
 class PlannedTodoOut(BaseModel):

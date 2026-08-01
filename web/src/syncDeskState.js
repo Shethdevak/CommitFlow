@@ -6,18 +6,23 @@ export function loadSyncDeskState() {
     if (!raw) return null;
     const data = JSON.parse(raw);
     if (!data || typeof data !== "object") return null;
+    const hourGoal =
+      data.hourGoal != null && Number.isFinite(Number(data.hourGoal))
+        ? Number(data.hourGoal)
+        : null;
     return {
       date: typeof data.date === "string" ? data.date : "",
       dryRun: data.dryRun !== false,
       result: data.result ?? null,
       error: typeof data.error === "string" ? data.error : "",
+      hourGoal,
     };
   } catch {
     return null;
   }
 }
 
-export function saveSyncDeskState({ date, dryRun, result, error }) {
+export function saveSyncDeskState({ date, dryRun, result, error, hourGoal }) {
   try {
     sessionStorage.setItem(
       STORAGE_KEY,
@@ -26,6 +31,7 @@ export function saveSyncDeskState({ date, dryRun, result, error }) {
         dryRun: dryRun !== false,
         result: result ?? null,
         error: error || "",
+        hourGoal: hourGoal != null && Number.isFinite(Number(hourGoal)) ? Number(hourGoal) : null,
       })
     );
   } catch {

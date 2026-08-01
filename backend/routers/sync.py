@@ -88,6 +88,10 @@ def run_sync(
             tz = ZoneInfo("UTC")
         target = datetime.now(tz).strftime("%Y-%m-%d")
 
+    # Session override from Sync desk — never persists to UserSettings / Integrations.
+    if body.daily_hour_goal is not None:
+        service.todo_planner.daily_hour_goal = float(body.daily_hour_goal)
+
     try:
         result = service.sync_date(
             target,

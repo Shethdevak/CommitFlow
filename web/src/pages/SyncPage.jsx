@@ -33,6 +33,12 @@ function todosMissingParent(list) {
   return (list || []).filter((t) => !t.parent_issue_id);
 }
 
+function clampDayHours(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 8;
+  return Math.max(0.25, Math.min(24, Math.round(n * 100) / 100));
+}
+
 export default function SyncPage() {
   const initial = loadSyncDeskState();
   const [dryRun, setDryRun] = useState(() => initial?.dryRun ?? true);
@@ -43,6 +49,13 @@ export default function SyncPage() {
   const [result, setResult] = useState(() =>
     initial?.result ? normalizeResult(initial.result) : null
   );
+  /** Integrations default — never written back from this page. */
+  const [integrationsHourGoal, setIntegrationsHourGoal] = useState(8);
+  /** Temporary day goal for Preview / Sync (session only). */
+  const [hourGoal, setHourGoal] = useState(() =>
+    initial?.hourGoal != null ? initial.hourGoal : 8
+  );
+  const [hourGoalReady, setHourGoalReady] = useState(() => initial?.hourGoal != null);
 
   /**
    * @type {null | {
@@ -56,8 +69,33 @@ export default function SyncPage() {
   const [dialog, setDialog] = useState(null);
 
   useEffect(() => {
-    saveSyncDeskState({ date, dryRun, result, error });
-  }, [date, dryRun, result, error]);
+    let cancelled = false;
+    api("/api/settings")
+      .then((s) => {
+        if (cancelled) return;
+        const saved = Number(s.daily_hour_goal);
+        const def = Number.isFinite(saved) && saved > 0 ? saved : 8;
+        setIntegrationsHourGoal(def);
+        // Only adopt Integrations default when session has no temporary override yet.
+        if (!hourGoalReady) {
+          setHourGoal(def);
+          setHourGoalReady(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled && !hourGoalReady) {
+          setHourGoalReady(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load Integrations default once on mount
+  }, []);
+
+  useEffect(() => {
+    saveSyncDeskState({ date, dryRun, result, error, hourGoal });
+  }, [date, dryRun, result, error, hourGoal]);
 
   useEffect(() => {
     if (!dialog) return undefined;
@@ -129,6 +167,7 @@ export default function SyncPage() {
           today: !date,
           date: date || null,
           allow_missing_parent: allowMissingParent,
+          daily_hour_goal: clampDayHours(hourGoal),
         },
       });
       setResult(normalizeResult(data));
@@ -275,6 +314,23 @@ export default function SyncPage() {
         <label className="field compact">
           <span>Date</span>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </label>
+
+        <label className="field compact day-hours-field">
+          <span>Hours</span>
+          <input
+            type="number"
+            min={0.25}
+            max={24}
+            step={0.25}
+            value={hourGoal}
+            onChange={(e) => setHourGoal(clampDayHours(e.target.value))}
+            aria-describedby="day-hours-hint"
+          />
+          <span id="day-hours-hint" className="field-hint">
+            Default from Integrations: {integrationsHourGoal}
+            {Number(hourGoal) !== Number(integrationsHourGoal) ? " · temporary for this plan" : ""}
+          </span>
         </label>
 
         <label className="toggle">

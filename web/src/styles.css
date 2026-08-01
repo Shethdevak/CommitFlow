@@ -663,17 +663,39 @@ button:disabled { opacity: 0.55; cursor: wait; }
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
-  align-items: end;
+  align-items: flex-start;
   padding: 1rem;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel);
   backdrop-filter: blur(10px);
 }
-.control-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-left: auto; }
+.control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-left: auto;
+  align-self: center;
+}
+.day-hours-field {
+  min-width: 7.5rem;
+}
+.day-hours-field input[type="number"] {
+  width: 5.5rem;
+}
+.field-hint {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: var(--ink-muted, var(--ink-soft));
+  font-weight: 400;
+  max-width: 12rem;
+}
 .toggle {
   display: inline-flex;
   align-items: center;
+  align-self: center;
   gap: 0.55rem;
   color: var(--ink-soft);
   font-weight: 500;
