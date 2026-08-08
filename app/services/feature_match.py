@@ -46,19 +46,25 @@ def match_feature_by_name(
 
 
 def score_commit_against_feature(commit: Commit, feature: RedmineFeature) -> float:
-    """How related a commit is to a parent feature (message + paths + description)."""
+    """
+    How related a commit is to a parent feature (message + paths + description).
+
+    Deliberately avoids bare `fuzz.partial_ratio`: it scores a short query
+    against a long candidate near-perfectly whenever *any* small substring
+    aligns, which let generic/longer-named features "magnet" every commit
+    regardless of real relevance. `WRatio` already discounts that same
+    partial-match signal internally once string lengths diverge, and
+    `token_set_ratio` only rewards genuine shared whole words — both are far
+    more resistant to that false-positive pattern.
+    """
     subject = feature.subject or ""
     label = _feature_label(feature)
     message = f"{commit.message or ''} {commit.description or ''}".strip()
     scores = [
         fuzz.WRatio(message, subject, processor=fuzz_utils.default_process),
-        fuzz.partial_ratio(message, subject, processor=fuzz_utils.default_process),
         fuzz.token_set_ratio(message, label, processor=fuzz_utils.default_process),
     ]
     for path in (commit.changed_files or [])[:40]:
-        scores.append(
-            fuzz.partial_ratio(path, subject, processor=fuzz_utils.default_process)
-        )
         # Folder/module hints: orders/, dashboard/, onboarding/
         scores.append(
             fuzz.token_set_ratio(path.replace("/", " "), subject, processor=fuzz_utils.default_process)
@@ -111,23 +117,31 @@ def resolve_related_feature(
     Resolve to a real Redmine feature subject when possible.
 
     Order:
-    1. Fuzzy match AI name onto real features
+    1. Fuzzy match AI name onto real features (skipped when the AI merely
+       echoed back the fallback/default label — see below)
     2. If confidence is low or name miss — content match from commit message/files
     3. Default feature name only as last resort (may not exist in Redmine yet)
     """
     predicted = (predicted_name or "").strip()
+    is_fallback_label = predicted.lower() == (default_feature or "").strip().lower()
 
-    # 1) Prefer a real feature close to the AI label (even when confidence is modest)
-    name_hit = match_feature_by_name(predicted, features)
-    if name_hit and (
-        confidence >= confidence_threshold or name_hit[1] >= 78
-    ):
-        feature, score = name_hit
-        logger.info(
-            f"Resolved AI feature '{predicted}' → '{feature.subject}' "
-            f"(name score {score:.1f}, confidence {confidence}%)"
-        )
-        return feature.subject
+    # 1) Prefer a real feature close to the AI label (even when confidence is modest) —
+    #    but only when the AI actually named a specific feature. The classifier prompt
+    #    tells the model to return `default_feature` verbatim ONLY when nothing is
+    #    related, so that string is an "I don't know" signal, not a real guess. If it
+    #    happens to also be a real Redmine feature, an exact name match here would
+    #    otherwise short-circuit straight past step 2 and silently swallow every
+    #    low-confidence commit into that one feature regardless of what it's about.
+    name_hit = None
+    if not is_fallback_label:
+        name_hit = match_feature_by_name(predicted, features)
+        if name_hit and (confidence >= confidence_threshold or name_hit[1] >= 78):
+            feature, score = name_hit
+            logger.info(
+                f"Resolved AI feature '{predicted}' → '{feature.subject}' "
+                f"(name score {score:.1f}, confidence {confidence}%)"
+            )
+            return feature.subject
 
     # 2) Relatedness from commit content (handles "orders" → Orders feature, etc.)
     content_hit = best_feature_for_commits(commits, features)

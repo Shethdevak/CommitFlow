@@ -470,7 +470,16 @@ class SyncService:
         feature_name: str,
         commits: Optional[List[Commit]] = None,
     ) -> Tuple[Optional[RedmineFeature], str]:
-        """Bind a feature label to a real Redmine parent; prefer related features over orphans."""
+        """
+        Bind a feature label to a real Redmine parent — but only when we're actually
+        confident about it (exact/fuzzy name match, or a commit-content match that
+        clears CONTENT_MATCH_MIN). Forcing a low-confidence guess onto *any* existing
+        Feature is worse than leaving it unresolved: it silently misattributes real
+        work to the wrong parent. When nothing matches, return None instead — at
+        write time `ensure_feature()` will create/find the Feature by its actual
+        (AI-resolved) name, and a missing parent surfaces via the normal
+        missing-parent confirmation flow rather than a wrong-but-valid one.
+        """
         parent = _match_feature(features, feature_name)
         if parent:
             return parent, parent.subject
@@ -496,29 +505,9 @@ class SyncService:
                 )
                 return parent, parent.subject
 
-        # Last resort while planning: any existing Feature (never invent Support/Meeting)
-        if features:
-            if commits:
-                weak = best_feature_for_commits(commits, features, min_score=0)
-                if weak:
-                    feature, score = weak
-                    logger.warning(
-                        f"No strong Feature match for '{feature_name}'; "
-                        f"using related '{feature.subject}' #{feature.id} "
-                        f"(score {score:.1f})"
-                    )
-                    return feature, feature.subject
-            pick = features[0]
-            logger.warning(
-                f"No Feature matched '{feature_name}'; using existing "
-                f"'{pick.subject}' #{pick.id} (will not use Support/Meeting)."
-            )
-            return pick, pick.subject
-
-        logger.warning(
-            f"No Feature issues in project for '{feature_name}' "
-            f"(or default '{default_name}'). "
-            "Writing will require confirmation to create the parent feature."
+        logger.info(
+            f"No confident Feature match for '{feature_name}' during planning; "
+            "leaving parent unresolved so it can be created/matched by name at write time."
         )
         return None, (feature_name or default_name).strip() or default_name
 
@@ -537,7 +526,13 @@ class SyncService:
     ) -> Optional[RedmineFeature]:
         """
         Pick an existing Feature tracker issue to parent a To-Do.
-        Used when Feature create is forbidden — never Support/Meeting.
+        Used ONLY when creating a new Feature failed (e.g. no rights) — never
+        Support/Meeting. Tries a real match first (name, then commit content, both
+        at their normal confidence thresholds — never an unconditional min_score=0
+        "whatever scores highest" pick, which would attach unrelated work to
+        whichever Feature happens to have the most generic name). Falls back to
+        the first existing Feature only as a genuine last resort, so a To-Do is
+        never left without any parent when Feature creation isn't possible.
         """
         features = self.redmine_client.get_features(project_id)
         if not features:
@@ -549,7 +544,7 @@ class SyncService:
 
         commits = list(todo.commits) if todo and todo.commits else []
         if commits:
-            related = best_feature_for_commits(commits, features, min_score=0)
+            related = best_feature_for_commits(commits, features)
             if related:
                 return related[0]
 
@@ -564,7 +559,7 @@ class SyncService:
                 repository="",
                 committed_date=datetime.now(timezone.utc),
             )
-            related = best_feature_for_commits([probe], features, min_score=0)
+            related = best_feature_for_commits([probe], features)
             if related:
                 return related[0]
 
@@ -574,6 +569,11 @@ class SyncService:
         if default_hit:
             return default_hit[0]
 
+        logger.warning(
+            f"No related or default Feature match for '{feature_name}'; attaching to "
+            f"first existing Feature '{features[0].subject}' #{features[0].id} as a "
+            "last resort (Feature creation was unavailable)."
+        )
         return features[0]
 
     def _ensure_todo_parent(

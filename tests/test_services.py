@@ -322,6 +322,80 @@ def test_related_feature_match_from_commit_paths(mock_redmine_features):
     assert resolved == "Orders Management"
 
 
+def test_resolve_related_feature_ignores_fallback_label_exact_match():
+    """
+    Regression test: when the AI gives up on a low-confidence commit and returns
+    the configured default/fallback feature label verbatim, and that label
+    happens to already exist as a real Redmine feature (e.g. a catch-all like
+    'Search & Discovery Module'), it must NOT short-circuit onto that feature
+    just because the name matches itself exactly. Content relatedness should
+    still be checked first — otherwise every low-confidence commit collapses
+    onto whichever feature the fallback label names, regardless of its content.
+    """
+    from app.services.feature_match import resolve_related_feature
+
+    catch_all = RedmineFeature(
+        id=1, subject="Search & Discovery Module", description="", project_id=101
+    )
+    payments = RedmineFeature(
+        id=2, subject="Payment", description="Billing, invoices, payment gateway", project_id=101
+    )
+    features = [catch_all, payments]
+
+    commit = Commit(
+        hash="pay1",
+        message="fix: correct invoice tax calculation in payment gateway",
+        author="u",
+        repository="r",
+        committed_date=datetime.now(),
+        changed_files=["src/payment/invoice.py", "src/payment/gateway.py"],
+    )
+
+    resolved = resolve_related_feature(
+        predicted_name="Search & Discovery Module",  # AI gave up and echoed the fallback label
+        commits=[commit],
+        features=features,
+        default_feature="Search & Discovery Module",
+        confidence=10,  # low confidence — AI wasn't sure
+        confidence_threshold=80,
+    )
+    assert resolved == "Payment"
+
+
+def test_resolve_feature_parent_does_not_force_unrelated_match():
+    """
+    Regression test for the sync-side half of the same bug: when neither a name
+    match nor a genuinely related content match exists, planning must leave the
+    parent unresolved (None) rather than force-attaching to whatever existing
+    Feature scores highest by accident. A missing parent is expected to be
+    handled later by the normal create/confirm flow, never silently guessed.
+    """
+    from app.services.sync import SyncService
+
+    unrelated_features = [
+        RedmineFeature(id=1, subject="Search & Discovery Module", description="", project_id=101),
+    ]
+    commit = Commit(
+        hash="zzz",
+        message="chore: bump lockfile",
+        author="u",
+        repository="r",
+        committed_date=datetime.now(),
+        changed_files=["package-lock.json"],
+    )
+
+    class _Settings:
+        default_feature = "General Development"
+
+    # Lightweight instance stub since _resolve_feature_parent only touches
+    # `self.settings.default_feature`.
+    stub = object.__new__(SyncService)
+    stub.settings = _Settings()
+    parent, name = stub._resolve_feature_parent(unrelated_features, "General Development", commits=[commit])
+    assert parent is None
+    assert name == "General Development"
+
+
 def test_feature_classifier_resolution(mock_redmine_features):
     """Checks that predicted features are resolved using fuzzy matching and threshold safeguards."""
     response_json = """{
@@ -416,6 +490,16 @@ def test_sync_service_execution(mocker, mock_settings, mock_commits, mock_redmin
     mock_rm.create_issue.return_value = {"id": 12345}
     mock_rm.get_time_entries_for_issue_on_date.return_value = []
     mock_rm.create_time_entry.return_value = {"id": 1}
+    # Direct attribute assignment (not .side_effect on the auto-attr) — unittest.mock
+    # blocks auto-creating any attribute named like an assertion (assert_*) via
+    # plain attribute access, which would otherwise raise on this real client method.
+    mock_rm.assert_feature_parent = mocker.Mock(
+        side_effect=lambda issue_id: next(
+            (f for f in mock_redmine_features if f.id == issue_id), None
+        )
+    )
+    mock_rm.ensure_todo_under_feature = mocker.Mock(return_value=None)
+    mock_rm.ensure_todo_assignment = mocker.Mock(return_value=None)
 
     mock_resolver = mocker.Mock()
     mock_resolver.mappings = {"digiflux-ezytix/be-api": "Ezytix Tech"}
