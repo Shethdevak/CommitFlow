@@ -6,10 +6,13 @@ from app.models.domain import RedmineProject, RedmineFeature
 from app.utils.helpers import with_retry
 
 # Digiflux / CommitFlow convention:
-#   Feature  = parent (product area)
-#   To-Do    = child work item where time is logged
-# Never create worklogs as Support/Meeting, Bug, Planning, etc.
+#   Planning = broad initiative/epic (optional top grouping, may not exist)
+#   Feature  = parent (product area), nested under a Planning when one exists
+#   To-Do    = child work item where time is logged, always under a Feature
+# Never log worklogs directly under Planning, Support/Meeting, Bug, etc. —
+# a Planning issue can be a Feature's parent, but never a To-Do's.
 _PARENT_TRACKER_KEYS = ("feature",)
+_PLANNING_TRACKER_KEYS = ("planning",)
 _CHILD_TRACKER_KEYS = ("todo", "todos")  # matches "To-Do", "Todo", "To Do"
 _BLOCKED_PARENT_KEYS = (
     "support",
@@ -43,6 +46,10 @@ def _is_feature_tracker(name: str) -> bool:
     if not key or key in _BLOCKED_PARENT_KEYS:
         return False
     return key == "feature" or key.startswith("feature")
+
+
+def _is_planning_tracker(name: str) -> bool:
+    return _tracker_key(name) in _PLANNING_TRACKER_KEYS
 
 
 def _is_todo_tracker(name: str) -> bool:
@@ -324,8 +331,70 @@ class RedmineClient:
         )
         return None
 
-    def get_features(self, project_id: int) -> List[RedmineFeature]:
-        """Fetches Feature-tracker issues (parents for To-Do worklogs)."""
+    def _pick_planning_tracker_id(self, project_id: int) -> Optional[int]:
+        """Planning tracker id for a project, if it uses one (many won't)."""
+        for tracker in self.get_project_trackers(project_id):
+            if _tracker_key(tracker.get("name") or "") in _PLANNING_TRACKER_KEYS:
+                return int(tracker["id"])
+        return None
+
+    def get_plannings(self, project_id: int) -> List[RedmineFeature]:
+        """
+        Fetches Planning-tracker issues — the broader initiative/epic grouping
+        that sits above Feature in orgs using a Planning -> Feature -> To-Do
+        hierarchy. Returns an empty list for projects with no Planning tracker
+        (Feature-only projects behave exactly as before — this is additive).
+        """
+        planning_tracker_id = self._pick_planning_tracker_id(project_id)
+        if not planning_tracker_id:
+            return []
+
+        plannings: List[RedmineFeature] = []
+        offset = 0
+        limit = 100
+        try:
+            while True:
+                params: Dict[str, Any] = {
+                    "project_id": project_id,
+                    "status_id": "*",
+                    "tracker_id": planning_tracker_id,
+                    "offset": offset,
+                    "limit": limit,
+                }
+                response = self._request("GET", "issues.json", params=params)
+                data = response.json()
+                issue_list = data.get("issues", [])
+                if not issue_list:
+                    break
+                for issue in issue_list:
+                    plannings.append(
+                        RedmineFeature(
+                            id=issue["id"],
+                            subject=issue["subject"],
+                            description=issue.get("description", ""),
+                            project_id=project_id,
+                        )
+                    )
+                if len(issue_list) < limit:
+                    break
+                offset += limit
+        except Exception as e:
+            logger.error(f"Failed to fetch Plannings for project {project_id}: {e}")
+            raise e
+
+        logger.info(f"Loaded {len(plannings)} Planning parent(s) for project {project_id}")
+        return plannings
+
+    def get_features(self, project_id: int, planning_id: Optional[int] = None) -> List[RedmineFeature]:
+        """
+        Fetches Feature-tracker issues (parents for To-Do worklogs).
+
+        When `planning_id` is given, only Features nested directly under that
+        Planning are returned — the normal case for orgs that group Features
+        under a broader Planning. Without it, every Feature in the project is
+        returned (used when a project has no Planning tracker, or as a
+        fallback when Planning-matching itself found nothing confident).
+        """
         features: List[RedmineFeature] = []
         offset = 0
         limit = 100
@@ -344,6 +413,8 @@ class RedmineClient:
                     params["tracker_id"] = feature_tracker_id
                 else:
                     params["parent_id"] = "!*"
+                if planning_id:
+                    params["parent_id"] = planning_id
 
                 response = self._request("GET", "issues.json", params=params)
                 data = response.json()
@@ -380,6 +451,7 @@ class RedmineClient:
         logger.info(
             f"Loaded {len(features)} Feature parent(s) for project {project_id}"
             + (f" (tracker_id={feature_tracker_id})" if feature_tracker_id else "")
+            + (f" under Planning #{planning_id}" if planning_id else "")
         )
         return features
 
@@ -430,23 +502,32 @@ class RedmineClient:
                 return feature
         return None
 
-    def ensure_feature(self, project_id: int, subject: str) -> RedmineFeature:
-        """Returns an existing root feature or creates one so to-dos always have a parent."""
+    def ensure_feature(
+        self, project_id: int, subject: str, planning_id: Optional[int] = None
+    ) -> RedmineFeature:
+        """
+        Returns an existing feature or creates one so to-dos always have a parent.
+        When `planning_id` is given, a newly created Feature is nested under that
+        Planning instead of sitting at the project root — keeping the hierarchy
+        intact for orgs that group Features under a broader Planning.
+        """
         name = (subject or "").strip() or "General Development"
         existing = self.find_feature_by_subject(project_id, name)
         if existing:
             return existing
 
         logger.warning(
-            f"Feature '{name}' not found as a root issue in project {project_id}; creating it."
+            f"Feature '{name}' not found in project {project_id}; creating it"
+            + (f" under Planning #{planning_id}" if planning_id else "")
+            + "."
         )
         issue = self.create_issue(
             project_id=project_id,
-            parent_issue_id=None,
+            parent_issue_id=planning_id,
             subject=name[:255],
             description=(
                 "Parent feature for CommitFlow daily to-dos.\n\n"
-                f"Auto-created because '{name}' was missing as a root Redmine issue."
+                f"Auto-created because '{name}' was missing as a Redmine Feature issue."
             ),
             for_parent=True,
         )

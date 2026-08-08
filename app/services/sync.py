@@ -319,11 +319,54 @@ class SyncService:
 
             # Resolve features for cached commits
             features_cache: Dict[int, list] = {}
+            plannings_cache: Dict[int, list] = {}
 
             def _features_for_project(project_id: int):
                 if project_id not in features_cache:
                     features_cache[project_id] = self.redmine_client.get_features(project_id)
                 return features_cache[project_id]
+
+            def _plannings_for_project(project_id: int):
+                if project_id not in plannings_cache:
+                    plannings_cache[project_id] = self.redmine_client.get_plannings(project_id)
+                return plannings_cache[project_id]
+
+            def _scoped_features(project_id: int, commits_for_scope: List[Commit]):
+                """
+                Some Redmine setups group Features under a broader Planning
+                issue (Planning -> Feature -> To-Do). Matching a commit against
+                every Feature in the whole project makes a broad/generic-sounding
+                Feature look related to almost anything; narrowing the search to
+                the Planning's own children first fixes that. Falls back to the
+                full project Feature list whenever there's no Planning tracker,
+                no confident Planning match, or the matched Planning has no
+                Feature children yet — Planning-awareness only narrows the
+                search, it never blocks a match the flat lookup would've found.
+                """
+                all_features = _features_for_project(project_id)
+                plannings = _plannings_for_project(project_id)
+                if not plannings:
+                    return None, all_features
+
+                planning_hit = best_feature_for_commits(commits_for_scope, plannings)
+                if not planning_hit:
+                    return None, all_features
+
+                planning, score = planning_hit
+                scoped = self.redmine_client.get_features(project_id, planning_id=planning.id)
+                if not scoped:
+                    logger.info(
+                        f"Planning '{planning.subject}' #{planning.id} matched "
+                        f"(score {score:.1f}) but has no Feature children yet; "
+                        "searching the whole project instead."
+                    )
+                    return planning, all_features
+
+                logger.info(
+                    f"Scoped Feature search to Planning '{planning.subject}' "
+                    f"#{planning.id} (score {score:.1f}) — {len(scoped)} Feature(s) under it."
+                )
+                return planning, scoped
 
             for commit in all_commits:
                 project_name = repo_project_map.get(commit.repository)
@@ -335,7 +378,7 @@ class SyncService:
 
                 feature_name = cached_feature_by_hash.get((commit.hash, commit.repository))
                 if feature_name:
-                    features = _features_for_project(project.id)
+                    planning, features = _scoped_features(project.id, [commit])
                     parent, feature_name = self._resolve_feature_parent(
                         features, feature_name, commits=[commit]
                     )
@@ -346,6 +389,8 @@ class SyncService:
                             project_id=project.id,
                             feature_name=feature_name,
                             parent_issue_id=parent.id if parent else None,
+                            planning_id=planning.id if planning else None,
+                            planning_name=planning.subject if planning else None,
                         )
                     )
 
@@ -359,7 +404,7 @@ class SyncService:
                 if not project:
                     continue
 
-                features = _features_for_project(project.id)
+                planning, features = _scoped_features(project.id, commits)
                 classification_result = self.classifier_service.classify_commits(
                     repository=repo,
                     project_name=project.name,
@@ -393,6 +438,8 @@ class SyncService:
                             commit=commit,
                             project_name=project.name,
                             project_id=project.id,
+                            planning_id=planning.id if planning else None,
+                            planning_name=planning.subject if planning else None,
                             feature_name=feature_name,
                             parent_issue_id=parent.id if parent else None,
                         )
@@ -534,7 +581,16 @@ class SyncService:
         the first existing Feature only as a genuine last resort, so a To-Do is
         never left without any parent when Feature creation isn't possible.
         """
-        features = self.redmine_client.get_features(project_id)
+        planning_id = todo.planning_id if todo else None
+        features = (
+            self.redmine_client.get_features(project_id, planning_id=planning_id)
+            if planning_id
+            else []
+        )
+        if not features:
+            # No Planning scope, or the scoped search came up empty — search the
+            # whole project rather than dead-ending.
+            features = self.redmine_client.get_features(project_id)
         if not features:
             return None
 
@@ -599,7 +655,9 @@ class SyncService:
             todo.parent_issue_id = None
 
         try:
-            feature = self.redmine_client.ensure_feature(todo.project_id, feature_name)
+            feature = self.redmine_client.ensure_feature(
+                todo.project_id, feature_name, planning_id=todo.planning_id
+            )
             # Double-check created/found issue is Feature
             verified = self.redmine_client.assert_feature_parent(int(feature.id))
             if verified:

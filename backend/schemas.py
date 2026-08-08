@@ -253,6 +253,8 @@ class PlannedTodoOut(BaseModel):
     project_id: int = 0
     parent_issue_id: Optional[int] = None
     description: str = ""
+    planning_id: Optional[int] = None
+    planning_name: Optional[str] = None
 
 
 class CommitPlannedRequest(BaseModel):

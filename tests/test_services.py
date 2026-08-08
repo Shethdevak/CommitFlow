@@ -479,6 +479,7 @@ def test_sync_service_execution(mocker, mock_settings, mock_commits, mock_redmin
     mock_rm.get_projects.return_value = [mock_redmine_project]
     mock_rm.get_project.return_value = mock_redmine_project
     mock_rm.get_features.return_value = mock_redmine_features
+    mock_rm.get_plannings.return_value = []  # project has no Planning tracker
     mock_rm.find_feature_by_subject.side_effect = lambda project_id, subject: next(
         (f for f in mock_redmine_features if f.subject.lower() == subject.lower()),
         None,
@@ -563,3 +564,139 @@ def test_sync_service_execution(mocker, mock_settings, mock_commits, mock_redmin
     assert cached is not None
     assert cached.predicted_feature == "Payment"
     assert cached.confidence == 98
+
+
+def test_sync_service_scopes_feature_match_to_matched_planning(mocker, mock_settings, db_session):
+    """
+    Regression test for a Planning -> Feature -> To-Do hierarchy: a commit
+    must be matched to the Feature under its OWN related Planning, never to a
+    similarly-scored Feature that happens to live under a different Planning
+    (this is the real-world "every to-do gets stuck under one catch-all
+    Planning/Feature" bug — scoping the Feature search to the matched Planning
+    is what prevents it).
+    """
+    from app.services.sync import SyncService
+
+    planning_search = RedmineFeature(
+        id=500, subject="Search & Discovery Module", description="", project_id=101
+    )
+    planning_payment = RedmineFeature(
+        id=501,
+        subject="Payment Initiatives",
+        description="Billing, invoices, payment gateway work",
+        project_id=101,
+    )
+    feature_search_ui = RedmineFeature(
+        id=600, subject="Global Search UI", description="", project_id=101
+    )
+    feature_payment_gateway = RedmineFeature(
+        id=601,
+        subject="Payment Gateway Integration",
+        description="Stripe/PayPal gateway retries and webhooks",
+        project_id=101,
+    )
+    all_features = [feature_search_ui, feature_payment_gateway]
+
+    project = RedmineProject(id=101, name="Ezytix Tech", identifier="ezytix-tech", description="")
+
+    commit = Commit(
+        hash="pay123",
+        message="fix: correct payment gateway retry logic on webhook failure",
+        author="Test Author",
+        repository="digiflux-ezytix/be-api",
+        committed_date=datetime(2026, 7, 6, 12, 0, 0),
+        changed_files=["src/payment/gateway.py", "src/payment/webhooks.py"],
+        additions=20,
+        deletions=4,
+    )
+
+    mock_gh = mocker.Mock()
+    mock_gh.list_repos.return_value = [
+        DiscoveredRepo(full_name="digiflux-ezytix/be-api", name="be-api", provider="github")
+    ]
+    mock_gh.fetch_commits.return_value = [commit]
+
+    mock_gl = mocker.Mock()
+    mock_gl.list_repos.return_value = []
+    mock_gl.fetch_commits.return_value = []
+
+    mock_rm = mocker.Mock()
+    mock_rm.get_projects.return_value = [project]
+    mock_rm.get_project.return_value = project
+    mock_rm.get_plannings.return_value = [planning_search, planning_payment]
+
+    def _features_side_effect(project_id, planning_id=None):
+        if planning_id == planning_payment.id:
+            return [feature_payment_gateway]
+        if planning_id == planning_search.id:
+            return [feature_search_ui]
+        return all_features
+
+    mock_rm.get_features.side_effect = _features_side_effect
+    mock_rm.assert_feature_parent = mocker.Mock(
+        side_effect=lambda issue_id: next((f for f in all_features if f.id == issue_id), None)
+    )
+    mock_rm.ensure_todo_under_feature = mocker.Mock(return_value=None)
+    mock_rm.ensure_todo_assignment = mocker.Mock(return_value=None)
+    mock_rm.find_feature_by_subject.side_effect = lambda project_id, subject: next(
+        (f for f in all_features if f.subject.lower() == subject.lower()), None
+    )
+    mock_rm.ensure_feature.side_effect = lambda project_id, subject, planning_id=None: next(
+        f for f in all_features if f.subject.lower() == subject.lower()
+    )
+    mock_rm.find_issue_by_subject.return_value = None
+    mock_rm.create_issue.return_value = {"id": 99999}
+    mock_rm.get_time_entries_for_issue_on_date.return_value = []
+    mock_rm.create_time_entry.return_value = {"id": 1}
+
+    mock_resolver = mocker.Mock()
+    mock_resolver.mappings = {"digiflux-ezytix/be-api": "Ezytix Tech"}
+    mock_resolver.providers = {"digiflux-ezytix/be-api": "github"}
+    mock_resolver.resolve_project.return_value = "Ezytix Tech"
+    mock_resolver.resolve_provider.return_value = "github"
+
+    ai_response = """{
+        "selected_features": [
+            {
+                "feature_name": "Payment Gateway Integration",
+                "confidence": 90,
+                "commits": ["pay123"],
+                "reason": "payment gateway retry logic"
+            }
+        ]
+    }"""
+    classifier = FeatureClassifierService(
+        ai_provider=MockAIProvider(ai_response),
+        confidence_threshold=80,
+        default_feature="General Development",
+    )
+
+    @contextmanager
+    def mock_db_session():
+        yield db_session
+
+    mocker.patch("app.services.sync.db_session", mock_db_session)
+    mocker.patch("app.services.reporting.ReportingService.export_reports")
+
+    sync_service = SyncService(
+        settings=mock_settings,
+        github_client=mock_gh,
+        gitlab_client=mock_gl,
+        redmine_client=mock_rm,
+        mapping_resolver=mock_resolver,
+        classifier_service=classifier,
+    )
+
+    result = sync_service.sync_date("2026-07-06", allow_missing_parent=True)
+
+    assert result.errors == []
+    assert mock_rm.create_issue.call_count == 3  # 1 commit padded to min_todos=3
+    for call in mock_rm.create_issue.call_args_list:
+        kwargs = call.kwargs
+        parent_id = kwargs.get("parent_issue_id")
+        if parent_id is None and len(call.args) >= 2:
+            parent_id = call.args[1]
+        assert parent_id == feature_payment_gateway.id, (
+            "to-do was scoped to the wrong Planning's Feature — "
+            f"expected {feature_payment_gateway.id}, got {parent_id}"
+        )

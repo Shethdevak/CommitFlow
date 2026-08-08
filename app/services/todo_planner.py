@@ -240,6 +240,8 @@ def _merge_chunk(chunk: List[WorkTodo]) -> WorkTodo:
         parent_issue_id=first.parent_issue_id,
         commits=[c for t in chunk for c in (t.commits or [])],
         is_synthetic=all(t.is_synthetic for t in chunk),
+        planning_id=first.planning_id,
+        planning_name=first.planning_name,
     )
 
 
@@ -352,6 +354,8 @@ class TodoPlannerService:
                     parent_issue_id=item.parent_issue_id,
                     commits=[item.commit],
                     is_synthetic=False,
+                    planning_id=item.planning_id,
+                    planning_name=item.planning_name,
                 )
             )
             logger.info(
@@ -381,6 +385,8 @@ class TodoPlannerService:
                     parent_issue_id=source.parent_issue_id,
                     commits=[source.commit],
                     is_synthetic=True,
+                    planning_id=source.planning_id,
+                    planning_name=source.planning_name,
                 )
             )
 

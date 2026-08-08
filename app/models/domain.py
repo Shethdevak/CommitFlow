@@ -54,6 +54,11 @@ class ClassifiedCommit(BaseModel):
     project_id: int
     feature_name: str
     parent_issue_id: Optional[int] = None
+    # The broader Planning this Feature was matched/scoped under, if the
+    # project uses a Planning -> Feature -> To-Do hierarchy. None for
+    # Feature-only projects (fully backward compatible).
+    planning_id: Optional[int] = None
+    planning_name: Optional[str] = None
 
 class WorkTodo(BaseModel):
     """A planned daily to-do with allocated hours."""
@@ -66,6 +71,8 @@ class WorkTodo(BaseModel):
     parent_issue_id: Optional[int] = None
     commits: List[Commit] = Field(default_factory=list)
     is_synthetic: bool = False  # True when padded to meet min to-do count
+    planning_id: Optional[int] = None
+    planning_name: Optional[str] = None
 
 class SyncResult(BaseModel):
     """Result of the synchronization workflow run."""

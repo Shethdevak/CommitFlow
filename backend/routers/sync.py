@@ -50,6 +50,8 @@ def _todo_out(t) -> PlannedTodoOut:
         project_id=t.project_id,
         parent_issue_id=t.parent_issue_id,
         description=t.description or "",
+        planning_id=t.planning_id,
+        planning_name=t.planning_name,
     )
 
 
@@ -128,6 +130,8 @@ def commit_planned(
             feature_name=t.feature_name,
             parent_issue_id=t.parent_issue_id,
             is_synthetic=t.is_synthetic,
+            planning_id=t.planning_id,
+            planning_name=t.planning_name,
         )
         for t in body.planned_todos
     ]

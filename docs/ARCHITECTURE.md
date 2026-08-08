@@ -12,6 +12,10 @@ against the right Redmine project **Feature** (a parent issue), plans a set of *
 child issues with hours distributed across a daily goal, and writes those To-Dos plus
 time entries into Redmine — without creating duplicates on re-runs.
 
+Some Redmine projects group Features under a broader **Planning** issue (an epic/
+initiative). Where that tracker exists, CommitFlow matches the right Planning first,
+then only searches *its* Feature children — see §4.
+
 It ships as two front doors over one shared engine: a single-user **CLI** (`app/cli.py`)
 for the original owner's own `.env`-based setup, and a multi-user **web app**
 (`backend/` API + `web/` React frontend) that lets other people sign up and run the same
@@ -71,7 +75,7 @@ app/                         # Core engine — used by BOTH the CLI and the web 
         openrouter_provider.py, ollama_provider.py, groq_provider.py
     github/client.py          # GitHub REST client (repo discovery, commit fetch)
     gitlab/client.py          # GitLab REST client (repo discovery, commit fetch)
-    redmine/client.py         # Redmine REST client (projects, features, issues, time entries)
+    redmine/client.py         # Redmine REST client (projects, plannings, features, issues, time entries)
     mappings/resolver.py      # Loads configs/repo_mappings.yaml; repo -> Redmine project
     database/
         models.py             # SQLite tables: AICache, FeedbackLog (CLI-side, single-user)
@@ -116,14 +120,26 @@ the exact same method, `app/services/sync.py::SyncService.sync_date()`:
 2. **Resolve project** — `MappingResolver` maps each repo to a Redmine project name.
 3. **Fetch commits** — for the target date, filtered to the configured author, from the
    correct provider (GitHub or GitLab) per repo.
-4. **Classify** — for each commit, check the `AICache` SQLite table first (avoids
+4. **Scope to a Planning, if the project uses one** — `RedmineClient.get_plannings()`
+   fetches Planning-tracker issues (empty list for Feature-only projects). If any exist,
+   the commit batch is content-matched against them (`feature_match.best_feature_for_commits`)
+   and the Feature search is narrowed to that Planning's children via
+   `get_features(project_id, planning_id=...)`. This exists because matching a commit
+   against *every* Feature in the whole project lets one broad/generic-sounding Feature
+   "magnet" unrelated commits; narrowing to the correct Planning's children first fixes
+   that. It only ever narrows — no Planning, no confident match, or an empty Planning
+   all fall back to the full project Feature list, so Feature-only projects are
+   unaffected.
+5. **Classify** — for each commit, check the `AICache` SQLite table first (avoids
    repeat AI calls); cache misses are batched per-repo and sent to the configured AI
    provider (`classifier.py`) along with any `FeedbackLog` corrections as few-shot
-   examples. `feature_match.py` then reconciles the AI's feature label with a real
-   Redmine Feature issue (exact match → fuzzy name match → content-based relatedness →
-   default feature → any existing Feature) — it deliberately never invents a
-   Support/Meeting issue as a parent.
-5. **Plan to-dos** — `TodoPlannerService.plan()` scores each commit's effort (lines/files
+   examples, using the (possibly Planning-scoped) Feature list from the previous step.
+   `feature_match.py` then reconciles the AI's feature label with a real Redmine Feature
+   issue (exact match → fuzzy name match → content-based relatedness) — it deliberately
+   never forces a low-confidence guess onto an unrelated Feature just because something
+   has to be picked; a genuinely unresolved parent is left `None` and handled by the
+   normal create/confirm flow instead (see `WorkTodo.planning_id`/`parent_issue_id`).
+6. **Plan to-dos** — `TodoPlannerService.plan()` scores each commit's effort (lines/files
    changed, conventional-commit type) and distributes the `daily_hour_goal` across
    To-Dos proportionally to that score, padding with synthetic follow-up To-Dos if there
    are fewer commits than `min_todos`. If the result exceeds the optional `max_todos`
@@ -132,12 +148,14 @@ the exact same method, `app/services/sync.py::SyncService.sync_date()`:
    it never merges across different features, since that would misattribute logged time
    to the wrong Redmine parent; if more distinct features were touched than `max_todos`
    allows, one To-Do per feature is kept as the floor and a warning is logged.
-6. **Write to Redmine** (skipped when `dry_run=True`) — for each planned To-Do:
+7. **Write to Redmine** (skipped when `dry_run=True`) — for each planned To-Do:
    reuse an existing issue with the same subject under the same Feature if one exists
    (idempotent re-sync), otherwise create it; verify/re-parent it under a real Feature
-   (never Support/Meeting); then log the remaining hours as a time entry, topping up
-   rather than duplicating if some hours were already logged for that day.
-7. **Export reports** — Markdown/HTML/CSV summaries written to `./reports/`.
+   (creating a missing Feature nests it under the matched Planning, if any — never
+   Support/Meeting, never directly under a Planning); then log the remaining hours as
+   a time entry, topping up rather than duplicating if some hours were already logged
+   for that day.
+8. **Export reports** — Markdown/HTML/CSV summaries written to `./reports/`.
 
 The web API's `POST /api/sync/commit` route lets the frontend apply an already-computed
 dry-run plan (`SyncService.apply_planned_todos`) without re-fetching or re-classifying —
