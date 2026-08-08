@@ -55,6 +55,7 @@ class UserSettings(Base):
     ai_provider = Column(String(32), default="groq")
     daily_hour_goal = Column(String(16), default="8")
     min_todos = Column(String(16), default="3")
+    max_todos = Column(String(16), nullable=True)  # blank/null = no cap
     project_match_threshold = Column(String(16), default="70")
     openai_model = Column(String(128), nullable=True)
     gemini_model = Column(String(128), nullable=True)

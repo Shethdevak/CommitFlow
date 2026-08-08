@@ -50,6 +50,11 @@ def apply_settings_update(row: UserSettings, payload: UserSettingsUpdate) -> Use
         row.daily_hour_goal = str(data["daily_hour_goal"])
     if "min_todos" in data and data["min_todos"] is not None:
         row.min_todos = str(data["min_todos"])
+    if "max_todos" in data:
+        # Unlike the other numeric fields, null is a meaningful value here
+        # (no cap) rather than "leave unchanged", so it's applied explicitly.
+        value = data["max_todos"]
+        row.max_todos = str(value) if value is not None else None
     if "project_match_threshold" in data and data["project_match_threshold"] is not None:
         row.project_match_threshold = str(data["project_match_threshold"])
 
@@ -107,6 +112,7 @@ def settings_to_public(row: Optional[UserSettings]) -> UserSettingsOut:
         ai_provider=row.ai_provider,
         daily_hour_goal=float(row.daily_hour_goal) if row.daily_hour_goal else 8.0,
         min_todos=int(row.min_todos) if row.min_todos else 3,
+        max_todos=int(row.max_todos) if row.max_todos else None,
         project_match_threshold=int(row.project_match_threshold) if row.project_match_threshold else 70,
         openai_model=row.openai_model,
         gemini_model=row.gemini_model,
@@ -161,6 +167,7 @@ def build_settings_mapping(row: UserSettings, *, db_path: str, mappings_path: st
         "TIMEZONE": row.timezone or "UTC",
         "DAILY_HOUR_GOAL": float(row.daily_hour_goal or 8),
         "MIN_TODOS": int(row.min_todos or 3),
+        "MAX_TODOS": int(row.max_todos) if row.max_todos else None,
         "PROJECT_MATCH_THRESHOLD": int(row.project_match_threshold or 70),
         "AI_PROVIDER": (row.ai_provider or "groq").lower(),
         "OPENAI_API_KEY": _opt_dec(row.openai_api_key_enc),

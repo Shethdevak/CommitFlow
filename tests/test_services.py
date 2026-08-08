@@ -10,7 +10,7 @@ from app.models.domain import (
 from app.services.classifier import FeatureClassifierService
 from app.services.reporting import ReportingService
 from app.services.sync import SyncService
-from app.services.todo_planner import TodoPlannerService, split_hours
+from app.services.todo_planner import TodoPlannerService, split_hours, merge_related_todos
 from app.mappings.resolver import MappingResolver
 from app.database.repository import DatabaseRepository
 from app.ai.provider import AIProvider
@@ -183,6 +183,107 @@ def test_todo_planner_one_per_commit_when_many():
     assert all(not t.is_synthetic for t in todos)
     # Not all equal anymore
     assert len(set(t.hours for t in todos)) > 1
+
+
+def test_todo_planner_merges_down_to_max_todos():
+    """16 commits under one feature, max_todos=5 → 5 merged to-dos, hours preserved."""
+    from app.models.domain import ClassifiedCommit
+
+    classified = []
+    for i in range(16):
+        classified.append(
+            ClassifiedCommit(
+                commit=Commit(
+                    hash=f"hash{i}",
+                    message=f"feat: work item {i}",
+                    author="u",
+                    repository="org/repo",
+                    committed_date=datetime(2026, 8, 7, 12, 0, 0),
+                    changed_files=[f"f{i}.ts"],
+                    additions=10 + i,
+                    deletions=2,
+                ),
+                project_name="Ezytix Tech",
+                project_id=1,
+                feature_name="Landing Page Development",
+                parent_issue_id=99,
+            )
+        )
+    planner = TodoPlannerService(daily_hour_goal=8.5, min_todos=3, max_todos=5)
+    todos = planner.plan(classified, "2026-08-07")
+
+    assert len(todos) == 5
+    assert round(sum(t.hours for t in todos), 2) == 8.5
+    assert all(t.parent_issue_id == 99 for t in todos)
+    assert all(t.feature_name == "Landing Page Development" for t in todos)
+    # Every original commit must still be represented in the merged plan
+    assert sum(len(t.commits) for t in todos) == 16
+
+
+def test_todo_planner_max_todos_never_merges_across_features():
+    """Distinct features are never combined, even if that exceeds max_todos."""
+    from app.models.domain import ClassifiedCommit
+
+    classified = [
+        ClassifiedCommit(
+            commit=Commit(
+                hash=f"h{i}",
+                message=f"feat: item {i}",
+                author="u",
+                repository="org/repo",
+                committed_date=datetime(2026, 8, 7, 12, 0, 0),
+                changed_files=["f.ts"],
+                additions=20,
+                deletions=1,
+            ),
+            project_name="Ezytix Tech",
+            project_id=1,
+            feature_name=f"Feature {i}",
+            parent_issue_id=100 + i,
+        )
+        for i in range(4)
+    ]
+    planner = TodoPlannerService(daily_hour_goal=8.0, min_todos=1, max_todos=2)
+    todos = planner.plan(classified, "2026-08-07")
+
+    # Cannot go below one to-do per distinct feature parent
+    assert len(todos) == 4
+    assert {t.feature_name for t in todos} == {f"Feature {i}" for i in range(4)}
+
+
+def test_todo_planner_below_max_todos_is_unchanged():
+    """max_todos above the natural count should not trigger any merging."""
+    from app.models.domain import WorkTodo
+
+    real_todos = [
+        WorkTodo(
+            subject=f"s{i}",
+            description="",
+            hours=1.0,
+            project_id=1,
+            project_name="P",
+            feature_name="F",
+            parent_issue_id=1,
+            commits=[],
+            is_synthetic=False,
+        )
+        for i in range(3)
+    ]
+    assert merge_related_todos(real_todos, 10) is real_todos
+    assert merge_related_todos(real_todos, None) is real_todos
+
+
+def test_settings_rejects_max_todos_below_min_todos():
+    from app.config.settings import Settings
+    import pytest as _pytest
+
+    with _pytest.raises(Exception):
+        Settings(
+            REDMINE_URL="https://redmine.mock.com",
+            REDMINE_API_KEY="rm_mock_key",
+            MIN_TODOS=5,
+            MAX_TODOS=2,
+        )
 
 
 def test_related_feature_match_from_commit_paths(mock_redmine_features):

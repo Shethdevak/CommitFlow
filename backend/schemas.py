@@ -1,6 +1,6 @@
 from typing import Optional
 import re
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 PASSWORD_RULE = (
     "Password must be at least 8 characters and include 1 uppercase letter, "
@@ -170,6 +170,8 @@ class UserSettingsUpdate(BaseModel):
     ai_provider: Optional[str] = None
     daily_hour_goal: Optional[float] = None
     min_todos: Optional[int] = None
+    # None/omitted = no cap. Sent explicitly (incl. null) so it can be cleared.
+    max_todos: Optional[int] = None
     project_match_threshold: Optional[int] = None
     groq_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
@@ -185,6 +187,19 @@ class UserSettingsUpdate(BaseModel):
     groq_model: Optional[str] = None
     mappings_yaml: Optional[str] = None
 
+    @model_validator(mode="after")
+    def check_todo_bounds(self) -> "UserSettingsUpdate":
+        # Best-effort: only catches the conflict when both are edited together
+        # in the same request. The authoritative check runs in app.config.settings
+        # (Settings) against the full stored row whenever a sync actually runs.
+        if (
+            self.max_todos is not None
+            and self.min_todos is not None
+            and self.max_todos < self.min_todos
+        ):
+            raise ValueError("Max to-dos must be greater than or equal to Min to-dos")
+        return self
+
 
 class UserSettingsOut(BaseModel):
     author_name: Optional[str] = None
@@ -194,6 +209,7 @@ class UserSettingsOut(BaseModel):
     ai_provider: Optional[str] = None
     daily_hour_goal: Optional[float] = None
     min_todos: Optional[int] = None
+    max_todos: Optional[int] = None
     project_match_threshold: Optional[int] = None
     openai_model: Optional[str] = None
     gemini_model: Optional[str] = None

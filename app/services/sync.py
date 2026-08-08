@@ -83,6 +83,7 @@ class SyncService:
         self.todo_planner = TodoPlannerService(
             daily_hour_goal=settings.daily_hour_goal,
             min_todos=settings.min_todos,
+            max_todos=settings.max_todos,
         )
         self._author_name = self._resolve_author_name()
 

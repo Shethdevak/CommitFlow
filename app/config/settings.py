@@ -1,5 +1,5 @@
 from typing import Any, Dict, Optional
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     # Daily worklog goals
     daily_hour_goal: float = Field(8.0, validation_alias="DAILY_HOUR_GOAL")
     min_todos: int = Field(3, validation_alias="MIN_TODOS")
+    max_todos: Optional[int] = Field(None, validation_alias="MAX_TODOS")
     project_match_threshold: int = Field(70, validation_alias="PROJECT_MATCH_THRESHOLD")
 
     # AI Configurations
@@ -74,6 +75,14 @@ class Settings(BaseSettings):
     @classmethod
     def validate_redmine_url(cls, v: str) -> str:
         return v.rstrip("/")
+
+    @model_validator(mode="after")
+    def validate_todo_bounds(self) -> "Settings":
+        if self.max_todos is not None and self.max_todos < self.min_todos:
+            raise ValueError(
+                f"MAX_TODOS ({self.max_todos}) must be >= MIN_TODOS ({self.min_todos})"
+            )
+        return self
 
     @classmethod
     def from_mapping(cls, data: Dict[str, Any]) -> "Settings":

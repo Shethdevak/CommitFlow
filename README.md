@@ -199,8 +199,10 @@ requirements.txt                  # Direct package requirements
    **Key Configuration Settings:**
    - `AUTHOR_NAME`: Your exact git committer name (used to filter commits).
    - `TIMEZONE`: Local timezone (e.g. `Asia/Kolkata`, `America/New_York`) to isolate date queries.
-   - `AI_PROVIDER`: Choose from `openai`, `gemini`, `anthropic`, `openrouter`, or `ollama`.
+   - `AI_PROVIDER`: Choose from `openai`, `gemini`, `anthropic`, `openrouter`, `ollama`, or `groq`.
    - `AI_CONFIDENCE_THRESHOLD`: Fallback threshold (default: 80). Confidence ratings below this map commits to the `DEFAULT_FEATURE`.
+   - `MIN_TODOS`: Pads a light day with synthetic follow-up to-dos so it never looks like just 1 commit = 1 to-do.
+   - `MAX_TODOS`: Optional cap on to-dos per day. When a busy day would create more than this, extra to-dos are merged into existing ones under the same Redmine feature (never across features) so a manager doesn't see 16 rows for one feature — leave unset for no cap.
 
 2. **Mappings**: Edit `configs/repo_mappings.yaml` to specify which Git repositories correspond to which Redmine projects:
    ```yaml

@@ -44,10 +44,13 @@ const SECTIONS = [
   {
     id: "goals",
     title: "Day shape",
-    blurb: "How the 8-hour plan is built.",
+    blurb:
+      "How the day's plan is built. Fewer commits than Min to-dos get padded with " +
+      "follow-up work; more than Max to-dos get combined under the same feature.",
     fields: [
       ["daily_hour_goal", "DAILY_HOUR_GOAL", "number", "8"],
       ["min_todos", "MIN_TODOS", "number", "3"],
+      ["max_todos", "MAX_TODOS", "number", "Blank = no limit"],
       ["project_match_threshold", "PROJECT_MATCH_THRESHOLD", "number", "70"],
     ],
   },
@@ -157,6 +160,9 @@ export default function SettingsPage() {
 
       if (body.daily_hour_goal != null) body.daily_hour_goal = Number(body.daily_hour_goal);
       if (body.min_todos != null) body.min_todos = Number(body.min_todos);
+      // Blank means "no limit" — send an explicit null so it can clear a saved value.
+      body.max_todos =
+        body.max_todos === "" || body.max_todos == null ? null : Number(body.max_todos);
       if (body.project_match_threshold != null) {
         body.project_match_threshold = Number(body.project_match_threshold);
       }

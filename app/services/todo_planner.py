@@ -2,7 +2,7 @@
 
 import math
 import re
-from typing import List, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 from loguru import logger
 from app.models.domain import ClassifiedCommit, Commit, WorkTodo
 
@@ -174,6 +174,118 @@ def split_hours(total: float, count: int) -> List[float]:
     return allocate_hours_by_weights(total, [1.0] * count)
 
 
+def _distribute_merge_targets(sizes: Sequence[int], total_target: int) -> List[int]:
+    """
+    Split `total_target` slots across groups, each group keeping at least one
+    slot. Remaining slots go one at a time to whichever group currently has
+    the most items stacked per slot, so the biggest pile shrinks first.
+    """
+    n = len(sizes)
+    total_target = max(n, min(total_target, sum(sizes)))
+    targets = [1] * n
+    remaining = total_target - n
+    while remaining > 0:
+        candidates = [i for i in range(n) if targets[i] < sizes[i]]
+        if not candidates:
+            break
+        idx = max(candidates, key=lambda i: sizes[i] / targets[i])
+        targets[idx] += 1
+        remaining -= 1
+    return targets
+
+
+def _split_into_chunks(group: List[WorkTodo], target: int) -> List[List[WorkTodo]]:
+    if target >= len(group):
+        return [[t] for t in group]
+    base, extra = divmod(len(group), target)
+    chunks: List[List[WorkTodo]] = []
+    idx = 0
+    for i in range(target):
+        size = base + 1 if i < extra else base
+        chunks.append(group[idx : idx + size])
+        idx += size
+    return chunks
+
+
+def _merge_subject(chunk: List[WorkTodo]) -> str:
+    extra = len(chunk) - 1
+    base = chunk[0].subject
+    return f"{base} (+{extra} more)" if extra else base
+
+
+def _merge_description(chunk: List[WorkTodo]) -> str:
+    header = (
+        f"Combined {len(chunk)} related to-dos under the same Redmine feature "
+        "to stay within your configured maximum to-dos per day.\n"
+    )
+    items = [t.description for t in chunk if t.description]
+    body = "\n\n".join(
+        f"--- Item {i + 1} of {len(items)} ---\n{d}" for i, d in enumerate(items)
+    )
+    return header + "\n" + body
+
+
+def _merge_chunk(chunk: List[WorkTodo]) -> WorkTodo:
+    """Collapse a chunk of to-dos that already share one Redmine parent into one."""
+    if len(chunk) == 1:
+        return chunk[0]
+    first = chunk[0]
+    return WorkTodo(
+        subject=_merge_subject(chunk)[:255],
+        description=_merge_description(chunk),
+        hours=round(sum(t.hours for t in chunk), 2),
+        project_id=first.project_id,
+        project_name=first.project_name,
+        feature_name=first.feature_name,
+        parent_issue_id=first.parent_issue_id,
+        commits=[c for t in chunk for c in (t.commits or [])],
+        is_synthetic=all(t.is_synthetic for t in chunk),
+    )
+
+
+def merge_related_todos(todos: List[WorkTodo], max_todos: Optional[int]) -> List[WorkTodo]:
+    """
+    Collapse a day's to-dos down to at most `max_todos` items so a manager
+    isn't staring at dozens of rows for one day of work.
+
+    To-dos are only ever merged with others that already share the same
+    Redmine project + Feature parent — merging across different features
+    would misattribute logged hours to the wrong parent issue. If more
+    distinct features were touched today than `max_todos` allows, one to-do
+    per feature is kept (the true floor) and a warning is logged instead of
+    silently dropping a feature's work.
+    """
+    if not max_todos or max_todos <= 0 or len(todos) <= max_todos:
+        return todos
+
+    groups: Dict[Tuple[int, str], List[WorkTodo]] = {}
+    for t in todos:
+        groups.setdefault((t.project_id, t.feature_name), []).append(t)
+
+    if len(groups) >= max_todos:
+        if len(groups) > max_todos:
+            logger.warning(
+                f"{len(groups)} distinct Redmine features touched today but "
+                f"max_todos={max_todos}; keeping one to-do per feature instead "
+                "(cannot merge across different parent features)."
+            )
+        return [_merge_chunk(group) for group in groups.values()]
+
+    sizes = [len(group) for group in groups.values()]
+    targets = _distribute_merge_targets(sizes, max_todos)
+
+    merged: List[WorkTodo] = []
+    for group, target in zip(groups.values(), targets):
+        for chunk in _split_into_chunks(group, target):
+            merged.append(_merge_chunk(chunk))
+
+    logger.info(
+        f"Merged {len(todos)} to-do(s) down to {len(merged)} "
+        f"(max_todos={max_todos}) across {len(groups)} feature(s)."
+    )
+    return merged
+
+
 def _commit_description(item: ClassifiedCommit, date_str: str) -> str:
     c = item.commit
     files = "\n".join(f"- {f}" for f in c.changed_files[:20]) or "- (no file list)"
@@ -193,9 +305,15 @@ def _commit_description(item: ClassifiedCommit, date_str: str) -> str:
 class TodoPlannerService:
     """Builds daily to-dos from classified commits and allocates hours by effort."""
 
-    def __init__(self, daily_hour_goal: float = 8.0, min_todos: int = 3):
+    def __init__(
+        self,
+        daily_hour_goal: float = 8.0,
+        min_todos: int = 3,
+        max_todos: Optional[int] = None,
+    ):
         self.daily_hour_goal = daily_hour_goal
         self.min_todos = max(1, min_todos)
+        self.max_todos = max_todos if max_todos and max_todos > 0 else None
 
     def plan(self, classified: List[ClassifiedCommit], date_str: str) -> List[WorkTodo]:
         """
@@ -203,6 +321,8 @@ class TodoPlannerService:
         - If commit count >= min_todos → one to-do per commit
         - If commit count < min_todos → pad with synthetic follow-up to-dos (low weight)
         - Hours sum to daily_hour_goal, weighted by commit effort (not equal)
+        - If the result exceeds max_todos, related to-dos (same project + feature)
+          are merged back down to max_todos (see merge_related_todos)
         """
         if not classified:
             return []
@@ -270,4 +390,8 @@ class TodoPlannerService:
             f"({n} commit(s), {pad_needed} synthetic) totaling {total}h "
             f"(goal {self.daily_hour_goal}h) using effort-weighted hours."
         )
+
+        if self.max_todos:
+            todos = merge_related_todos(todos, self.max_todos)
+
         return todos

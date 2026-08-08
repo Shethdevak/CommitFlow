@@ -62,6 +62,18 @@ def _ensure_email_otp_user_id_column(engine) -> None:
             conn.execute(text("ALTER TABLE email_otps ADD COLUMN user_id INTEGER"))
 
 
+def _ensure_user_settings_max_todos_column(engine) -> None:
+    """Add user_settings.max_todos for existing DBs; null means no cap."""
+    insp = inspect(engine)
+    if "user_settings" not in insp.get_table_names():
+        return
+    cols = {c["name"] for c in insp.get_columns("user_settings")}
+    if "max_todos" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE user_settings ADD COLUMN max_todos VARCHAR(16)"))
+
+
 def init_api_db() -> None:
     global _engine, _SessionLocal
     settings = get_api_settings()
@@ -72,6 +84,7 @@ def init_api_db() -> None:
     Base.metadata.create_all(bind=_engine)
     _ensure_email_verified_column(_engine)
     _ensure_email_otp_user_id_column(_engine)
+    _ensure_user_settings_max_todos_column(_engine)
 
 
 def get_db():
